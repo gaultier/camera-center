@@ -1,8 +1,8 @@
 use crossbeam_queue::ArrayQueue;
 use std::fs::File;
-use std::io::Write;
+use std::io::{ErrorKind, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
-use std::os::fd::{AsRawFd};
+use std::os::fd::AsRawFd;
 use std::sync::Arc;
 use std::thread::{self};
 use std::time::Duration;
@@ -90,6 +90,7 @@ fn handle_client(stream: &mut TcpStream, file: File) -> std::io::Result<()> {
     offset = offset.saturating_sub(typical_packet_size as u64);
 
     loop {
+        let old_offset = offset;
         let offet_ptr: *mut i64 = &mut (offset as i64);
         let sent = unsafe {
             libc::sendfile(
@@ -99,8 +100,13 @@ fn handle_client(stream: &mut TcpStream, file: File) -> std::io::Result<()> {
                 typical_packet_size,
             )
         };
+        if sent == -1 {
+            log::error!(old_offset; "failed to sendfile(2)");
+            return Err(std::io::Error::from(ErrorKind::UnexpectedEof));
+        }
+        offset = offset.saturating_add(sent as u64);
 
-        log::debug!( sent; "served message");
+        log::debug!( sent, old_offset, new_offset=offset; "served message");
     }
 }
 
