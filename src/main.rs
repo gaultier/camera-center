@@ -3,7 +3,6 @@ use std::io::Write;
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::thread::{self};
 
-
 fn compute_hash(data: &[u8]) -> u64 {
     let mut h = 0x100u64;
     for x in data {
@@ -14,13 +13,18 @@ fn compute_hash(data: &[u8]) -> u64 {
     h
 }
 
+#[derive(Clone)]
 struct Message {
     video_data: Vec<u8>,
     from: SocketAddr,
     hash: u64,
 }
 
-fn receive_stream_udp_forever(port: u16, sender: Sender<Message>) -> std::io::Result<()> {
+fn receive_stream_udp_forever(
+    port: u16,
+    sender_disk: Sender<Message>,
+    sender_broadcast: Sender<Message>,
+) -> std::io::Result<()> {
     let socket = std::net::UdpSocket::bind(format!("0.0.0.0:{}", port))?;
 
     loop {
@@ -36,7 +40,10 @@ fn receive_stream_udp_forever(port: u16, sender: Sender<Message>) -> std::io::Re
             hash,
             from: src,
         };
-        let _ = sender.send(msg).map_err(|err| {
+        let _ = sender_disk.send(msg.clone()).map_err(|err| {
+            log::error!(err:?; "failed to send message");
+        });
+        let _ = sender_broadcast.send(msg).map_err(|err| {
             log::error!(err:?; "failed to send message");
         });
 
@@ -99,15 +106,15 @@ fn main() {
     // Initialize the logger.
     std_logger::Config::logfmt().init();
 
-    let (s, r1) = bounded(256);
-    let r2 = r1.clone();
+    let (sender_disk, receiver_disk) = bounded(256);
+    let (sender_broadcast, receiver_broadcast) = bounded(256);
 
     thread::spawn(move || {
-        receive_stream_udp_forever(12345, s).unwrap();
+        receive_stream_udp_forever(12345, sender_disk, sender_broadcast).unwrap();
     });
     thread::spawn(move || {
-        write_to_disk(r1).unwrap();
+        write_to_disk(receiver_disk).unwrap();
     });
 
-    run_broadcast_server(8082, r2).unwrap();
+    run_broadcast_server(8082, receiver_broadcast).unwrap();
 }
