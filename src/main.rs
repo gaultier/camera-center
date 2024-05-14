@@ -1,7 +1,9 @@
-use crossbeam_channel::{bounded, Receiver, Sender};
+use crossbeam_queue::ArrayQueue;
 use std::io::Write;
 use std::net::{SocketAddr, TcpListener, TcpStream};
+use std::sync::Arc;
 use std::thread::{self};
+use std::time::Duration;
 
 fn compute_hash(data: &[u8]) -> u64 {
     let mut h = 0x100u64;
@@ -22,8 +24,8 @@ struct Message {
 
 fn receive_stream_udp_forever(
     port: u16,
-    sender_disk: Sender<Message>,
-    sender_broadcast: Sender<Message>,
+    disk_ring_buffer: Arc<ArrayQueue<Message>>,
+    net_ring_buffer: Arc<ArrayQueue<Message>>,
 ) -> std::io::Result<()> {
     let socket = std::net::UdpSocket::bind(format!("0.0.0.0:{}", port))?;
 
@@ -37,68 +39,58 @@ fn receive_stream_udp_forever(
         let hash = compute_hash(buf);
         let msg = Message {
             video_data: buf.to_vec(),
-            hash,
             from: src,
+            hash,
         };
-        let _ = sender_disk.send(msg.clone()).map_err(|err| {
-            log::error!(err:?; "failed to send message");
-        });
-        let _ = sender_broadcast.send(msg).map_err(|err| {
-            log::error!(err:?; "failed to send message");
-        });
+        disk_ring_buffer.force_push(msg.clone());
+        net_ring_buffer.force_push(msg);
 
         log::debug!(hash; "received and forwarded camera packet");
     }
 }
 
-fn write_to_disk(receiver: Receiver<Message>) -> std::io::Result<()> {
+fn write_to_disk(disk_ring_buffer: Arc<ArrayQueue<Message>>) -> std::io::Result<()> {
     let mut file = std::fs::OpenOptions::new()
         .append(true)
         .create(true)
         .open("cam.mpegts")?;
 
     loop {
-        let msg = match receiver.recv() {
-            Ok(msg) => msg,
-            Err(err) => {
-                log::error!(err:?; "failed to receive message");
-                continue;
-            }
-        };
-
-        let _ = file.write_all(&msg.video_data).map_err(|err| {
-            log::error!(err:?; "failed to write to disk");
-        });
-        log::debug!(hash=msg.hash, len=msg.video_data.len(); "wrote message to disk");
+        if let Some(msg) = disk_ring_buffer.pop() {
+            let _ = file.write_all(&msg.video_data).map_err(|err| {
+                log::error!(err:?; "failed to write to disk");
+            });
+            log::debug!(hash=msg.hash, len=msg.video_data.len(); "wrote message to disk");
+        } else {
+            std::thread::sleep(Duration::from_millis(5));
+        }
     }
 }
 
-fn run_broadcast_server(port: u16, receiver: Receiver<Message>) -> std::io::Result<()> {
+fn run_broadcast_server(
+    port: u16,
+    net_ring_buffer: Arc<ArrayQueue<Message>>,
+) -> std::io::Result<()> {
     let listener = TcpListener::bind(format!("0.0.0.0:{}", port))?;
 
     loop {
         for stream in listener.incoming() {
-            let r = receiver.clone();
-            handle_client(&mut stream?, r);
+            handle_client(&mut stream?, net_ring_buffer.clone());
         }
     }
 }
 
-fn handle_client(stream: &mut TcpStream, receiver: Receiver<Message>) {
+fn handle_client(stream: &mut TcpStream, net_ring_buffer: Arc<ArrayQueue<Message>>) {
     loop {
-        let msg = match receiver.recv() {
-            Ok(msg) => msg,
-            Err(err) => {
-                log::error!(err:?; "failed to receive message");
-                continue;
+        if let Some(msg) = net_ring_buffer.pop() {
+            if let Err(err) = stream.write_all(&msg.video_data) {
+                log::error!(err:?; "failed to write to tcp stream");
+                return;
             }
-        };
-
-        if let Err(err) = stream.write_all(&msg.video_data) {
-            log::error!(err:?; "failed to write to tcp stream");
-            return;
+            log::debug!(hash=msg.hash, len=msg.video_data.len(); "served message");
+        } else {
+            std::thread::sleep(Duration::from_millis(5));
         }
-        log::debug!(hash=msg.hash, len=msg.video_data.len(); "served message");
     }
 }
 
@@ -106,15 +98,19 @@ fn main() {
     // Initialize the logger.
     std_logger::Config::logfmt().init();
 
-    let (sender_disk, receiver_disk) = bounded(256);
-    let (sender_broadcast, receiver_broadcast) = bounded(256);
+    let disk_ring_buffer = Arc::new(ArrayQueue::new(256));
+    let net_ring_buffer = Arc::new(ArrayQueue::new(256));
 
+    let disk_ring_buffer1 = disk_ring_buffer.clone();
+    let net_ring_buffer1 = net_ring_buffer.clone();
     thread::spawn(move || {
-        receive_stream_udp_forever(12345, sender_disk, sender_broadcast).unwrap();
-    });
-    thread::spawn(move || {
-        write_to_disk(receiver_disk).unwrap();
+        receive_stream_udp_forever(12345, disk_ring_buffer1, net_ring_buffer1).unwrap();
     });
 
-    run_broadcast_server(8082, receiver_broadcast).unwrap();
+    let disk_ring_buffer2 = disk_ring_buffer.clone();
+    thread::spawn(move || {
+        write_to_disk(disk_ring_buffer2).unwrap();
+    });
+
+    run_broadcast_server(8082, net_ring_buffer).unwrap();
 }
