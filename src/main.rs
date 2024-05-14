@@ -1,25 +1,47 @@
 use crossbeam_channel::{bounded, Receiver, Sender};
 use std::io::Write;
-use std::net::{TcpListener, TcpStream};
-use std::thread;
+use std::net::{SocketAddr, TcpListener, TcpStream};
+use std::thread::{self, sleep};
+use std::time::Duration;
 
-fn receive_stream_udp_forever(port: u16, sender: Sender<Vec<u8>>) -> std::io::Result<()> {
+fn hash(data: &[u8]) -> u64 {
+    let mut h = 0x100u64;
+    for x in data {
+        h ^= *x as u64;
+        h = h.wrapping_mul(1111111111111111111u64);
+    }
+
+    h
+}
+
+struct Message {
+    video_data: Vec<u8>,
+    from: SocketAddr,
+    hash: u64,
+}
+
+fn receive_stream_udp_forever(port: u16, sender: Sender<Message>) -> std::io::Result<()> {
     let socket = std::net::UdpSocket::bind(format!("0.0.0.0:{}", port))?;
 
     loop {
         let mut buf = [0; 4096];
         let (amt, src) = socket.recv_from(&mut buf)?;
 
-        let msg = &buf[..amt];
+        let buf = &buf[..amt];
         log::debug!(from:? =src, port, amt ; "received UDP packet");
 
-        let _ = sender.send(msg.to_vec()).map_err(|err| {
+        let msg = Message {
+            video_data: buf.to_vec(),
+            hash: hash(buf),
+            from: src,
+        };
+        let _ = sender.send(msg).map_err(|err| {
             log::error!(err:?; "failed to send message");
         });
     }
 }
 
-fn write_to_disk(receiver: Receiver<Vec<u8>>) -> std::io::Result<()> {
+fn write_to_disk(receiver: Receiver<Message>) -> std::io::Result<()> {
     let mut file = std::fs::OpenOptions::new()
         .append(true)
         .create(true)
@@ -33,24 +55,27 @@ fn write_to_disk(receiver: Receiver<Vec<u8>>) -> std::io::Result<()> {
                 continue;
             }
         };
+        assert_eq!(hash(&msg.video_data), msg.hash);
 
-        let _ = file.write_all(&msg).map_err(|err| {
+        let _ = file.write_all(&msg.video_data).map_err(|err| {
             log::error!(err:?; "failed to write to disk");
         });
+        log::debug!(len=msg.video_data.len(); "wrote message to disk");
     }
 }
 
-fn run_broadcast_server(port: u16, receiver: Receiver<Vec<u8>>) -> std::io::Result<()> {
+fn run_broadcast_server(port: u16, receiver: Receiver<Message>) -> std::io::Result<()> {
     let listener = TcpListener::bind(format!("0.0.0.0:{}", port))?;
 
     loop {
         for stream in listener.incoming() {
-            handle_client(&mut stream?, receiver.clone());
+            let r = receiver.clone();
+            handle_client(&mut stream?, r);
         }
     }
 }
 
-fn handle_client(stream: &mut TcpStream, receiver: Receiver<Vec<u8>>) {
+fn handle_client(stream: &mut TcpStream, receiver: Receiver<Message>) {
     loop {
         let msg = match receiver.recv() {
             Ok(msg) => msg,
@@ -60,7 +85,9 @@ fn handle_client(stream: &mut TcpStream, receiver: Receiver<Vec<u8>>) {
             }
         };
 
-        if let Err(err) = stream.write_all(&msg) {
+        assert_eq!(hash(&msg.video_data), msg.hash);
+
+        if let Err(err) = stream.write_all(&msg.video_data) {
             log::error!(err:?; "failed to write to tcp stream");
             return;
         }
