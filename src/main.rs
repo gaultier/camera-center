@@ -51,7 +51,7 @@ fn receive_stream_udp_forever(
     }
 }
 
-fn write_to_disk(disk_ring_buffer: Arc<ArrayQueue<Message>>) -> std::io::Result<()> {
+fn write_to_disk_forever(disk_ring_buffer: Arc<ArrayQueue<Message>>) -> std::io::Result<()> {
     let mut file = std::fs::OpenOptions::new()
         .append(true)
         .create(true)
@@ -60,7 +60,7 @@ fn write_to_disk(disk_ring_buffer: Arc<ArrayQueue<Message>>) -> std::io::Result<
     loop {
         if let Some(msg) = disk_ring_buffer.pop() {
             let _ = file.write_all(&msg.video_data).map_err(|err| {
-                log::error!(err:?; "failed to write to disk");
+                log::error!(err:?, from:? = msg.from; "failed to write to disk");
             });
             log::debug!(hash=msg.hash, len=msg.video_data.len(); "wrote message to disk");
         } else {
@@ -69,7 +69,7 @@ fn write_to_disk(disk_ring_buffer: Arc<ArrayQueue<Message>>) -> std::io::Result<
     }
 }
 
-fn run_broadcast_server(port: u16) -> std::io::Result<()> {
+fn run_broadcast_server_forever(port: u16) -> std::io::Result<()> {
     let listener = TcpListener::bind(format!("0.0.0.0:{}", port))?;
     let file = File::open("cam.mpegts")?;
 
@@ -125,8 +125,8 @@ fn main() {
 
     let disk_ring_buffer2 = disk_ring_buffer.clone();
     thread::spawn(move || {
-        write_to_disk(disk_ring_buffer2).unwrap();
+        write_to_disk_forever(disk_ring_buffer2).unwrap();
     });
 
-    run_broadcast_server(8082).unwrap();
+    run_broadcast_server_forever(8082).unwrap();
 }
