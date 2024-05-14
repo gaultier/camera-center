@@ -1,27 +1,39 @@
 use crossbeam_channel::{bounded, Receiver, Sender};
-use std::io::Read;
 use std::io::Write;
 use std::net::{SocketAddr, TcpListener, TcpStream};
-use std::thread::{self};
+use std::thread::{self, sleep};
+use std::time::Duration;
+
+fn hash(data: &[u8]) -> u64 {
+    let mut h = 0x100u64;
+    for x in data {
+        h ^= *x as u64;
+        h = h.wrapping_mul(1111111111111111111u64);
+    }
+
+    h
+}
 
 struct Message {
     video_data: Vec<u8>,
     from: SocketAddr,
+    hash: u64,
 }
 
-fn receive_stream_from_camera(from: &SocketAddr, sender: Sender<Message>) -> std::io::Result<()> {
-    let mut socket = std::net::TcpStream::connect(from)?;
+fn receive_stream_udp_forever(port: u16, sender: Sender<Message>) -> std::io::Result<()> {
+    let socket = std::net::UdpSocket::bind(format!("0.0.0.0:{}", port))?;
 
     loop {
         let mut buf = [0; 4096];
-        let read_count = socket.read(&mut buf)?;
+        let (amt, src) = socket.recv_from(&mut buf)?;
 
-        let buf = &buf[..read_count];
-        log::debug!(from:?, read_count ; "received packet");
+        let buf = &buf[..amt];
+        log::debug!(from:? =src, port, amt ; "received UDP packet");
 
         let msg = Message {
             video_data: buf.to_vec(),
-            from: *from,
+            hash: hash(buf),
+            from: src,
         };
         let _ = sender.send(msg).map_err(|err| {
             log::error!(err:?; "failed to send message");
@@ -43,6 +55,8 @@ fn write_to_disk(receiver: Receiver<Message>) -> std::io::Result<()> {
                 continue;
             }
         };
+        assert_eq!(hash(&msg.video_data), msg.hash);
+
         let _ = file.write_all(&msg.video_data).map_err(|err| {
             log::error!(err:?; "failed to write to disk");
         });
@@ -71,6 +85,8 @@ fn handle_client(stream: &mut TcpStream, receiver: Receiver<Message>) {
             }
         };
 
+        assert_eq!(hash(&msg.video_data), msg.hash);
+
         if let Err(err) = stream.write_all(&msg.video_data) {
             log::error!(err:?; "failed to write to tcp stream");
             return;
@@ -86,7 +102,7 @@ fn main() {
     let r2 = r1.clone();
 
     thread::spawn(move || {
-        receive_stream_from_camera(&SocketAddr::from(([192, 168, 1, 125], 12345)), s).unwrap();
+        receive_stream_udp_forever(12345, s).unwrap();
     });
     thread::spawn(move || {
         write_to_disk(r1).unwrap();
