@@ -1,6 +1,8 @@
 use crossbeam_queue::ArrayQueue;
+use std::fs::File;
 use std::io::Write;
 use std::net::{SocketAddr, TcpListener, TcpStream};
+use std::os::fd::{AsRawFd};
 use std::sync::Arc;
 use std::thread::{self};
 use std::time::Duration;
@@ -67,34 +69,38 @@ fn write_to_disk(disk_ring_buffer: Arc<ArrayQueue<Message>>) -> std::io::Result<
     }
 }
 
-fn run_broadcast_server(
-    port: u16,
-    net_ring_buffer: Arc<ArrayQueue<Message>>,
-) -> std::io::Result<()> {
+fn run_broadcast_server(port: u16) -> std::io::Result<()> {
     let listener = TcpListener::bind(format!("0.0.0.0:{}", port))?;
+    let file = File::open("cam.mpegts")?;
 
     loop {
         for stream in listener.incoming() {
-            let net_ring_buffer1 = net_ring_buffer.clone();
             let mut stream = stream?;
+            let file = file.try_clone()?;
             thread::spawn(move || {
-                handle_client(&mut stream, net_ring_buffer1);
+                let _ = handle_client(&mut stream, file);
             });
         }
     }
 }
 
-fn handle_client(stream: &mut TcpStream, net_ring_buffer: Arc<ArrayQueue<Message>>) {
+fn handle_client(stream: &mut TcpStream, file: File) -> std::io::Result<()> {
+    let typical_packet_size = 188usize;
+    let mut offset = file.metadata()?.len();
+    offset = offset.saturating_sub(typical_packet_size as u64);
+
     loop {
-        if let Some(msg) = net_ring_buffer.pop() {
-            if let Err(err) = stream.write_all(&msg.video_data) {
-                log::error!(err:?; "failed to write to tcp stream");
-                return;
-            }
-            log::debug!(hash=msg.hash, len=msg.video_data.len(); "served message");
-        } else {
-            std::thread::sleep(Duration::from_millis(5));
-        }
+        let offet_ptr: *mut i64 = &mut (offset as i64);
+        let sent = unsafe {
+            libc::sendfile(
+                stream.as_raw_fd(),
+                file.as_raw_fd(),
+                offet_ptr,
+                typical_packet_size,
+            )
+        };
+
+        log::debug!( sent; "served message");
     }
 }
 
@@ -116,5 +122,5 @@ fn main() {
         write_to_disk(disk_ring_buffer2).unwrap();
     });
 
-    run_broadcast_server(8082, net_ring_buffer).unwrap();
+    run_broadcast_server(8082).unwrap();
 }

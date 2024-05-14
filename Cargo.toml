@@ -9,3 +9,4 @@ edition = "2021"
 log = {version="0.4.21", features=["kv"]}
 std-logger = "0.5.3"
 crossbeam-queue = "0.3.11"
+libc = "0.2"
