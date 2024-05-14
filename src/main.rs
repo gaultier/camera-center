@@ -1,10 +1,10 @@
 use crossbeam_channel::{bounded, Receiver, Sender};
 use std::io::Write;
 use std::net::{SocketAddr, TcpListener, TcpStream};
-use std::thread::{self, sleep};
-use std::time::Duration;
+use std::thread::{self};
 
-fn hash(data: &[u8]) -> u64 {
+
+fn compute_hash(data: &[u8]) -> u64 {
     let mut h = 0x100u64;
     for x in data {
         h ^= *x as u64;
@@ -30,14 +30,17 @@ fn receive_stream_udp_forever(port: u16, sender: Sender<Message>) -> std::io::Re
         let buf = &buf[..amt];
         log::debug!(from:? =src, port, amt ; "received UDP packet");
 
+        let hash = compute_hash(buf);
         let msg = Message {
             video_data: buf.to_vec(),
-            hash: hash(buf),
+            hash,
             from: src,
         };
         let _ = sender.send(msg).map_err(|err| {
             log::error!(err:?; "failed to send message");
         });
+
+        log::debug!(hash; "received and forwarded camera packet");
     }
 }
 
@@ -55,12 +58,11 @@ fn write_to_disk(receiver: Receiver<Message>) -> std::io::Result<()> {
                 continue;
             }
         };
-        assert_eq!(hash(&msg.video_data), msg.hash);
 
         let _ = file.write_all(&msg.video_data).map_err(|err| {
             log::error!(err:?; "failed to write to disk");
         });
-        log::debug!(len=msg.video_data.len(); "wrote message to disk");
+        log::debug!(hash=msg.hash, len=msg.video_data.len(); "wrote message to disk");
     }
 }
 
@@ -85,12 +87,11 @@ fn handle_client(stream: &mut TcpStream, receiver: Receiver<Message>) {
             }
         };
 
-        assert_eq!(hash(&msg.video_data), msg.hash);
-
         if let Err(err) = stream.write_all(&msg.video_data) {
             log::error!(err:?; "failed to write to tcp stream");
             return;
         }
+        log::debug!(hash=msg.hash, len=msg.video_data.len(); "served message");
     }
 }
 
