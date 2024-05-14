@@ -75,7 +75,11 @@ fn run_broadcast_server(
 
     loop {
         for stream in listener.incoming() {
-            handle_client(&mut stream?, net_ring_buffer.clone());
+            let net_ring_buffer1 = net_ring_buffer.clone();
+            let mut stream = stream?;
+            thread::spawn(move || {
+                handle_client(&mut stream, net_ring_buffer1);
+            });
         }
     }
 }
