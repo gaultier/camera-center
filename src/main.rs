@@ -7,21 +7,11 @@ use std::sync::Arc;
 use std::thread::{self};
 use std::time::Duration;
 
-fn compute_hash(data: &[u8]) -> u64 {
-    let mut h = 0x100u64;
-    for x in data {
-        h ^= *x as u64;
-        h = h.wrapping_mul(1111111111111111111u64);
-    }
-
-    h
-}
-
 #[derive(Clone)]
 struct Message {
     video_data: Vec<u8>,
     from: SocketAddr,
-    hash: u64,
+    id: usize,
 }
 
 fn receive_stream_udp_forever(
@@ -30,6 +20,7 @@ fn receive_stream_udp_forever(
     net_ring_buffer: Arc<ArrayQueue<Message>>,
 ) -> std::io::Result<()> {
     let socket = std::net::UdpSocket::bind(format!("0.0.0.0:{}", port))?;
+    let mut msg_id = 0usize;
 
     loop {
         let mut buf = [0; 4096];
@@ -38,16 +29,17 @@ fn receive_stream_udp_forever(
         let buf = &buf[..amt];
         log::debug!(from:? =src, port, amt ; "received UDP packet");
 
-        let hash = compute_hash(buf);
         let msg = Message {
             video_data: buf.to_vec(),
             from: src,
-            hash,
+            id: msg_id,
         };
         disk_ring_buffer.force_push(msg.clone());
         net_ring_buffer.force_push(msg);
 
-        log::debug!(hash; "received and forwarded camera packet");
+        log::debug!(msg_id; "received and forwarded camera packet");
+
+        msg_id = msg_id.wrapping_add(1);
     }
 }
 
@@ -62,7 +54,7 @@ fn write_to_disk_forever(disk_ring_buffer: Arc<ArrayQueue<Message>>) -> std::io:
             let _ = file.write_all(&msg.video_data).map_err(|err| {
                 log::error!(err:?, from:? = msg.from; "failed to write to disk");
             });
-            log::debug!(hash=msg.hash, len=msg.video_data.len(); "wrote message to disk");
+            log::debug!(id=msg.id, len=msg.video_data.len(); "wrote message to disk");
         } else {
             std::thread::sleep(Duration::from_millis(5));
         }
