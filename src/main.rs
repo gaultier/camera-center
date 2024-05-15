@@ -1,4 +1,4 @@
-use chrono::{DateTime, Local};
+use chrono::{DateTime, Local, TimeDelta};
 use crossbeam_queue::ArrayQueue;
 use std::fs::File;
 use std::io::{ErrorKind, Write};
@@ -6,6 +6,9 @@ use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::os::fd::AsRawFd;
 use std::sync::Arc;
 use std::thread::{self};
+
+const FILE_RECORDING_DURATION: TimeDelta = TimeDelta::minutes(1);
+const SUBTITLE_DURATION: TimeDelta = TimeDelta::seconds(1);
 
 #[derive(Clone)]
 struct Message {
@@ -71,8 +74,6 @@ fn make_subtitle(
     )
 }
 
-// fn open_output_files(
-
 fn write_to_disk_forever(disk_ring_buffer: Arc<ArrayQueue<Message>>) -> std::io::Result<()> {
     let mut video_file = std::fs::OpenOptions::new()
         .append(true)
@@ -95,9 +96,9 @@ fn write_to_disk_forever(disk_ring_buffer: Arc<ArrayQueue<Message>>) -> std::io:
             });
 
             let now = chrono::offset::Local::now();
-            let elapsed = now.timestamp_millis() - last_timestamp.timestamp_millis();
+            let elapsed = now - last_timestamp;
 
-            if elapsed > 1_000 {
+            if elapsed >= SUBTITLE_DURATION {
                 let subtitle =
                     make_subtitle(&now, &last_timestamp, &recording_beginning, subtitle_id);
                 let _ = subtitle_file.write_all(subtitle.as_bytes()).map_err(|err| {
