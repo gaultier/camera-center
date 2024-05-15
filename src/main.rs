@@ -51,14 +51,14 @@ fn open_output_file(
     now: &DateTime<Local>,
     recording_beginning: &mut DateTime<Local>,
 ) -> std::io::Result<File> {
-    let now_fmt = now.format("%FT%H:%M:%S");
+    let path = format!("{}.ts", now.format("%FT%H:%M:%S"));
 
     let video_file = std::fs::OpenOptions::new()
         .append(true)
         .create(true)
-        .open(format!("{}.ts", now_fmt))?;
+        .open(&path)?;
 
-    log::info!(now_fmt:?; "opened new output file");
+    log::info!(path; "opened new output file");
     *recording_beginning = *now;
 
     Ok(video_file)
