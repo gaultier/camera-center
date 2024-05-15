@@ -91,7 +91,7 @@ fn open_output_files(
         .open(format!("{}.srt", now_fmt))?;
 
     log::info!(now_fmt:?; "opened new output files");
-    *recording_beginning = now.clone();
+    *recording_beginning = *now;
 
     Ok((video_file, subtitle_file))
 }
@@ -101,7 +101,7 @@ fn write_to_disk_forever(disk_ring_buffer: Arc<ArrayQueue<Message>>) -> std::io:
     let (mut video_file, mut subtitle_file) =
         open_output_files(&chrono::offset::Local::now(), &mut recording_beginning)?;
     let mut subtitle_id: usize = 1;
-    let mut last_subtitle = recording_beginning.clone();
+    let mut last_subtitle = recording_beginning;
 
     loop {
         if let Some(msg) = disk_ring_buffer.pop() {
