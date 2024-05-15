@@ -7,8 +7,8 @@ use std::os::fd::AsRawFd;
 use std::sync::Arc;
 use std::thread::{self};
 
-const FILE_RECORDING_DURATION: TimeDelta = TimeDelta::minutes(1);
-const SUBTITLE_DURATION: TimeDelta = TimeDelta::seconds(1);
+const MAX_FILE_RECORDING_DURATION: TimeDelta = TimeDelta::minutes(1);
+const MAX_SUBTITLE_DURATION: TimeDelta = TimeDelta::seconds(1);
 
 #[derive(Clone)]
 struct Message {
@@ -74,20 +74,27 @@ fn make_subtitle(
     )
 }
 
+fn open_output_files(now: &DateTime<Local>) -> std::io::Result<(File, File)> {
+    let now_fmt = now.format("%FT%H:%M:%S");
+
+    let video_file = std::fs::OpenOptions::new()
+        .append(true)
+        .create(true)
+        .open(format!("{}.ts", now_fmt))?;
+
+    let subtitle_file = std::fs::OpenOptions::new()
+        .append(true)
+        .create(true)
+        .open(format!("{}.srt", now_fmt))?;
+
+    Ok((video_file, subtitle_file))
+}
+
 fn write_to_disk_forever(disk_ring_buffer: Arc<ArrayQueue<Message>>) -> std::io::Result<()> {
-    let mut video_file = std::fs::OpenOptions::new()
-        .append(true)
-        .create(true)
-        .open("cam.mpegts")?;
-
-    let mut subtitle_file = std::fs::OpenOptions::new()
-        .append(true)
-        .create(true)
-        .open("cam.srt")?;
-
+    let (mut video_file, mut subtitle_file) = open_output_files(&chrono::offset::Local::now())?;
     let mut subtitle_id: usize = 1;
-    let mut last_timestamp = chrono::offset::Local::now();
-    let recording_beginning = last_timestamp;
+    let mut last_subtitle = chrono::offset::Local::now();
+    let recording_beginning = last_subtitle;
 
     loop {
         if let Some(msg) = disk_ring_buffer.pop() {
@@ -96,16 +103,22 @@ fn write_to_disk_forever(disk_ring_buffer: Arc<ArrayQueue<Message>>) -> std::io:
             });
 
             let now = chrono::offset::Local::now();
-            let elapsed = now - last_timestamp;
+            let duration_since_last_subtitle = now - last_subtitle;
 
-            if elapsed >= SUBTITLE_DURATION {
+            if duration_since_last_subtitle >= MAX_SUBTITLE_DURATION {
                 let subtitle =
-                    make_subtitle(&now, &last_timestamp, &recording_beginning, subtitle_id);
+                    make_subtitle(&now, &last_subtitle, &recording_beginning, subtitle_id);
                 let _ = subtitle_file.write_all(subtitle.as_bytes()).map_err(|err| {
                     log::error!(err:?, from:? = msg.from; "failed to write subtitles to disk");
                 });
                 subtitle_id += 1;
-                last_timestamp = now;
+                last_subtitle = now;
+            }
+
+            let duration_since_recording_beginning = now - recording_beginning;
+
+            if duration_since_recording_beginning >= MAX_FILE_RECORDING_DURATION {
+                (video_file, subtitle_file) = open_output_files(&chrono::offset::Local::now())?;
             }
 
             log::debug!(id=msg.id, len=msg.video_data.len(); "wrote message to disk");
