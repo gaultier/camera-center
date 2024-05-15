@@ -45,10 +45,17 @@ fn receive_stream_udp_forever(
 
 fn make_subtitle(
     now: &DateTime<Local>,
+    last_timestamp: &DateTime<Local>,
+    recording_beginning: &DateTime<Local>,
     id: usize,
-    start_duration: &chrono::Duration,
-    end_duration: &chrono::Duration,
 ) -> String {
+    let start_duration = chrono::Duration::milliseconds(
+        last_timestamp.timestamp_millis() - recording_beginning.timestamp_millis(),
+    );
+    let end_duration = chrono::Duration::milliseconds(
+        now.timestamp_millis() - recording_beginning.timestamp_millis(),
+    );
+
     format!(
         "{}\n{}:{}:{},{} --> {}:{}:{},{}\n{}\n\n\n",
         id,
@@ -63,6 +70,8 @@ fn make_subtitle(
         now.format("%F %H:%M:%S,%3f"),
     )
 }
+
+// fn open_output_files(
 
 fn write_to_disk_forever(disk_ring_buffer: Arc<ArrayQueue<Message>>) -> std::io::Result<()> {
     let mut video_file = std::fs::OpenOptions::new()
@@ -88,15 +97,9 @@ fn write_to_disk_forever(disk_ring_buffer: Arc<ArrayQueue<Message>>) -> std::io:
             let now = chrono::offset::Local::now();
             let elapsed = now.timestamp_millis() - last_timestamp.timestamp_millis();
 
-            let start_duration = chrono::Duration::milliseconds(
-                last_timestamp.timestamp_millis() - recording_beginning.timestamp_millis(),
-            );
-            let end_duration = chrono::Duration::milliseconds(
-                now.timestamp_millis() - recording_beginning.timestamp_millis(),
-            );
-
             if elapsed > 1_000 {
-                let subtitle = make_subtitle(&now, subtitle_id, &start_duration, &end_duration);
+                let subtitle =
+                    make_subtitle(&now, &last_timestamp, &recording_beginning, subtitle_id);
                 let _ = subtitle_file.write_all(subtitle.as_bytes()).map_err(|err| {
                     log::error!(err:?, from:? = msg.from; "failed to write subtitles to disk");
                 });
