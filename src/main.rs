@@ -93,8 +93,8 @@ fn open_output_files(now: &DateTime<Local>) -> std::io::Result<(File, File)> {
 fn write_to_disk_forever(disk_ring_buffer: Arc<ArrayQueue<Message>>) -> std::io::Result<()> {
     let (mut video_file, mut subtitle_file) = open_output_files(&chrono::offset::Local::now())?;
     let mut subtitle_id: usize = 1;
-    let mut last_subtitle = chrono::offset::Local::now();
-    let recording_beginning = last_subtitle;
+    let recording_beginning = chrono::offset::Local::now();
+    let mut last_subtitle = recording_beginning;
 
     loop {
         if let Some(msg) = disk_ring_buffer.pop() {
