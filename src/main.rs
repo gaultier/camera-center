@@ -89,12 +89,18 @@ fn write_to_disk_forever(disk_ring_buffer: Arc<ArrayQueue<Message>>) -> std::io:
 
 fn run_broadcast_server_forever(port: u16) -> std::io::Result<()> {
     let listener = TcpListener::bind(format!("0.0.0.0:{}", port))?;
-    let file_name = "live.ts";
+    let path = std::fs::read_dir(".")
+        .expect("Couldn't access local directory")
+        .flatten() // Remove failed
+        .filter(|f| {
+            f.metadata().unwrap().is_file() && f.path().extension().unwrap_or_default() == "ts"
+        }) // Filter out directories (only consider files)
+        .max_by_key(|x| x.metadata().unwrap().modified().unwrap()); // Get the most recently modified file
 
     let file = loop {
-        match File::open(file_name) {
+        match File::open(path.as_ref().map(|x| x.file_name()).unwrap_or_default()) {
             Err(err) => {
-                log::error!(err:?, file_name; "failed to open file, retrying");
+                log::error!(err:?, path:? ; "failed to open file, retrying");
                 thread::sleep(std::time::Duration::from_secs(1));
             }
             Ok(file) => break file,
@@ -156,9 +162,9 @@ fn main() {
     });
 
     let disk_ring_buffer2 = disk_ring_buffer.clone();
-    // thread::spawn(move || {
-    write_to_disk_forever(disk_ring_buffer2).unwrap();
-    // });
+    thread::spawn(move || {
+        write_to_disk_forever(disk_ring_buffer2).unwrap();
+    });
 
-    //run_broadcast_server_forever(8082).unwrap();
+    run_broadcast_server_forever(8082).unwrap();
 }
