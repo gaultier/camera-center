@@ -8,13 +8,13 @@ use std::sync::Arc;
 use std::thread::{self};
 
 const MAX_FILE_RECORDING_DURATION: TimeDelta = TimeDelta::minutes(1);
-const MAX_SUBTITLE_DURATION: TimeDelta = TimeDelta::seconds(1);
 
 #[derive(Clone)]
 struct Message {
     video_data: Vec<u8>,
     from: SocketAddr,
     id: usize,
+    at: DateTime<Local>,
 }
 
 fn receive_stream_udp_forever(
@@ -36,6 +36,7 @@ fn receive_stream_udp_forever(
             video_data: buf.to_vec(),
             from: src,
             id: msg_id,
+            at: chrono::offset::Local::now(),
         };
         disk_ring_buffer.force_push(msg.clone());
         net_ring_buffer.force_push(msg);
@@ -46,38 +47,10 @@ fn receive_stream_udp_forever(
     }
 }
 
-fn make_subtitle(
-    now: &DateTime<Local>,
-    last_timestamp: &DateTime<Local>,
-    recording_beginning: &DateTime<Local>,
-    id: usize,
-) -> String {
-    let start_duration = chrono::Duration::milliseconds(
-        last_timestamp.timestamp_millis() - recording_beginning.timestamp_millis(),
-    );
-    let end_duration = chrono::Duration::milliseconds(
-        now.timestamp_millis() - recording_beginning.timestamp_millis(),
-    );
-
-    format!(
-        "{}\n{}:{}:{},{} --> {}:{}:{},{}\n{}\n\n\n",
-        id,
-        start_duration.num_hours(),
-        start_duration.num_minutes(),
-        start_duration.num_seconds(),
-        start_duration.num_milliseconds(),
-        end_duration.num_hours(),
-        end_duration.num_minutes(),
-        end_duration.num_seconds(),
-        end_duration.num_milliseconds(),
-        now.format("%F %H:%M:%S,%3f"),
-    )
-}
-
-fn open_output_files(
+fn open_output_file(
     now: &DateTime<Local>,
     recording_beginning: &mut DateTime<Local>,
-) -> std::io::Result<(File, File)> {
+) -> std::io::Result<File> {
     let now_fmt = now.format("%FT%H:%M:%S");
 
     let video_file = std::fs::OpenOptions::new()
@@ -85,23 +58,15 @@ fn open_output_files(
         .create(true)
         .open(format!("{}.ts", now_fmt))?;
 
-    let subtitle_file = std::fs::OpenOptions::new()
-        .append(true)
-        .create(true)
-        .open(format!("{}.srt", now_fmt))?;
-
-    log::info!(now_fmt:?; "opened new output files");
+    log::info!(now_fmt:?; "opened new output file");
     *recording_beginning = *now;
 
-    Ok((video_file, subtitle_file))
+    Ok(video_file)
 }
 
 fn write_to_disk_forever(disk_ring_buffer: Arc<ArrayQueue<Message>>) -> std::io::Result<()> {
     let mut recording_beginning = chrono::offset::Local::now();
-    let (mut video_file, mut subtitle_file) =
-        open_output_files(&chrono::offset::Local::now(), &mut recording_beginning)?;
-    let mut subtitle_id: usize = 1;
-    let mut last_subtitle = recording_beginning;
+    let mut video_file = open_output_file(&chrono::offset::Local::now(), &mut recording_beginning)?;
 
     loop {
         if let Some(msg) = disk_ring_buffer.pop() {
@@ -109,24 +74,10 @@ fn write_to_disk_forever(disk_ring_buffer: Arc<ArrayQueue<Message>>) -> std::io:
                 log::error!(err:?, from:? = msg.from; "failed to write video to disk");
             });
 
-            let now = chrono::offset::Local::now();
-            let duration_since_last_subtitle = now - last_subtitle;
-
-            if duration_since_last_subtitle >= MAX_SUBTITLE_DURATION {
-                let subtitle =
-                    make_subtitle(&now, &last_subtitle, &recording_beginning, subtitle_id);
-                let _ = subtitle_file.write_all(subtitle.as_bytes()).map_err(|err| {
-                    log::error!(err:?, from:? = msg.from; "failed to write subtitles to disk");
-                });
-                subtitle_id += 1;
-                last_subtitle = now;
-            }
-
-            let duration_since_recording_beginning = now - recording_beginning;
+            let duration_since_recording_beginning = msg.at - recording_beginning;
 
             if duration_since_recording_beginning >= MAX_FILE_RECORDING_DURATION {
-                (video_file, subtitle_file) =
-                    open_output_files(&chrono::offset::Local::now(), &mut recording_beginning)?;
+                video_file = open_output_file(&msg.at, &mut recording_beginning)?;
             }
 
             log::debug!(id=msg.id, len=msg.video_data.len(); "wrote message to disk");
@@ -205,9 +156,9 @@ fn main() {
     });
 
     let disk_ring_buffer2 = disk_ring_buffer.clone();
-    thread::spawn(move || {
-        write_to_disk_forever(disk_ring_buffer2).unwrap();
-    });
+    // thread::spawn(move || {
+    write_to_disk_forever(disk_ring_buffer2).unwrap();
+    // });
 
-    run_broadcast_server_forever(8082).unwrap();
+    //run_broadcast_server_forever(8082).unwrap();
 }
