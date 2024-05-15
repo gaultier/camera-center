@@ -93,13 +93,13 @@ fn run_broadcast_server_forever(port: u16) -> std::io::Result<()> {
         for stream in listener.incoming() {
             let mut stream = stream?;
             thread::spawn(move || {
-                let _ = handle_client(&mut stream);
+                let _ = handle_broadcast_client(&mut stream);
             });
         }
     }
 }
 
-fn handle_client(stream: &mut TcpStream) -> std::io::Result<()> {
+fn open_freshest_file_on_disk() -> std::io::Result<File> {
     let input_path = std::fs::read_dir(".")
         .expect("Couldn't access local directory")
         .flatten() // Remove failed
@@ -108,15 +108,19 @@ fn handle_client(stream: &mut TcpStream) -> std::io::Result<()> {
         }) // Filter out directories (only consider files)
         .max_by_key(|x| x.metadata().unwrap().modified().unwrap()); // Get the most recently modified file
 
+    File::open(
+        input_path
+            .as_ref()
+            .map(|x| x.file_name())
+            .unwrap_or_default(),
+    )
+}
+
+fn handle_broadcast_client(stream: &mut TcpStream) -> std::io::Result<()> {
     let input_file = loop {
-        match File::open(
-            input_path
-                .as_ref()
-                .map(|x| x.file_name())
-                .unwrap_or_default(),
-        ) {
+        match open_freshest_file_on_disk() {
             Err(err) => {
-                log::error!(err:?, input_path:? ; "failed to open file, retrying");
+                log::error!(err:?; "failed to open freshest file, retrying");
                 thread::sleep(std::time::Duration::from_secs(1));
             }
             Ok(file) => break file,
