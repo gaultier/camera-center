@@ -101,32 +101,7 @@ fn run_broadcast_server_forever(port: u16) -> std::io::Result<()> {
     }
 }
 
-fn open_freshest_file_on_disk() -> std::io::Result<File> {
-    let input_path = std::fs::read_dir(".")
-        .expect("Couldn't access local directory")
-        .flatten() // Remove failed
-        .filter(|f| {
-            f.metadata().unwrap().is_file() && f.path().extension().unwrap_or_default() == "ts"
-        }) // Filter out directories (only consider files)
-        .max_by_key(|x| x.metadata().unwrap().modified().unwrap()) // Get the most recently modified file
-        .map(|x| x.file_name())
-        .ok_or(std::io::Error::from(std::io::ErrorKind::NotFound))?;
-
-    log::debug!(path:?=input_path; "freshest file on disk");
-    File::open(input_path)
-}
-
 fn handle_broadcast_client(stream: &mut TcpStream) -> std::io::Result<()> {
-    let mut input_file: File = loop {
-        match open_freshest_file_on_disk() {
-            Err(err) => {
-                log::error!(err:?; "failed to open freshest file, retrying");
-                thread::sleep(std::time::Duration::from_secs(1));
-            }
-            Ok(file) => break file,
-        }
-    };
-
     let (tx, rx) = std::sync::mpsc::channel();
     let mut watcher = notify::RecommendedWatcher::new(tx, notify::Config::default()).unwrap();
 
@@ -134,7 +109,8 @@ fn handle_broadcast_client(stream: &mut TcpStream) -> std::io::Result<()> {
         .watch(Path::new("."), RecursiveMode::NonRecursive)
         .unwrap();
 
-    let mut offset = input_file.metadata()?.len();
+    let mut offset = 0u64;
+    let mut input_file = None;
     for res in rx {
         match res {
             Ok(event)
@@ -147,7 +123,7 @@ fn handle_broadcast_client(stream: &mut TcpStream) -> std::io::Result<()> {
 
                 if let Some(path) = video_file {
                     log::info!(path:?; "new video file");
-                    input_file = File::open(path).unwrap();
+                    input_file = Some(File::open(path).unwrap());
                     offset = 0;
                 }
             }
@@ -157,10 +133,20 @@ fn handle_broadcast_client(stream: &mut TcpStream) -> std::io::Result<()> {
                         notify::event::DataChange::Any,
                     )) =>
             {
+                if input_file.is_none() {
+                    input_file = Some(File::open(event.paths.first().unwrap()).unwrap());
+                    offset = input_file.as_ref().unwrap().metadata().unwrap().len();
+                }
+
                 let old_offset = offset;
                 let offet_ptr: *mut i64 = &mut (offset as i64);
                 let sent = unsafe {
-                    libc::sendfile(stream.as_raw_fd(), input_file.as_raw_fd(), offet_ptr, 8192)
+                    libc::sendfile(
+                        stream.as_raw_fd(),
+                        input_file.as_ref().unwrap().as_raw_fd(),
+                        offet_ptr,
+                        8192,
+                    )
                 };
                 if sent == -1 {
                     log::error!(old_offset; "failed to sendfile(2)");
