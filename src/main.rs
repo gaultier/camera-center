@@ -5,13 +5,18 @@ use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::os::fd::AsRawFd;
 use std::sync::Arc;
 use std::thread::{self};
-use std::time::Duration;
 
 #[derive(Clone)]
 struct Message {
     video_data: Vec<u8>,
     from: SocketAddr,
     id: usize,
+}
+
+struct Subtitle {
+    sequence_number: usize,
+    start: usize,
+    end: usize,
 }
 
 fn receive_stream_udp_forever(
@@ -44,19 +49,60 @@ fn receive_stream_udp_forever(
 }
 
 fn write_to_disk_forever(disk_ring_buffer: Arc<ArrayQueue<Message>>) -> std::io::Result<()> {
-    let mut file = std::fs::OpenOptions::new()
+    let mut video_file = std::fs::OpenOptions::new()
         .append(true)
         .create(true)
         .open("cam.mpegts")?;
 
+    let mut subtitle_file = std::fs::OpenOptions::new()
+        .append(true)
+        .create(true)
+        .open("cam.srt")?;
+
+    let mut subtitle_id: usize = 1;
+    let mut last_timestamp = chrono::offset::Local::now();
+    let recording_beginning = last_timestamp;
+
     loop {
         if let Some(msg) = disk_ring_buffer.pop() {
-            let _ = file.write_all(&msg.video_data).map_err(|err| {
-                log::error!(err:?, from:? = msg.from; "failed to write to disk");
+            let _ = video_file.write_all(&msg.video_data).map_err(|err| {
+                log::error!(err:?, from:? = msg.from; "failed to write video to disk");
             });
+
+            let now = chrono::offset::Local::now();
+            let elapsed = now.timestamp_millis() - last_timestamp.timestamp_millis();
+
+            let start_duration = chrono::Duration::milliseconds(
+                last_timestamp.timestamp_millis() - recording_beginning.timestamp_millis(),
+            );
+            let end_duration = chrono::Duration::milliseconds(
+                now.timestamp_millis() - recording_beginning.timestamp_millis(),
+            );
+
+            if elapsed > 1_000 {
+                let subtitle = format!(
+                    "{}\n{}:{}:{},{} --> {}:{}:{},{}\n{}\n\n\n",
+                    subtitle_id,
+                    start_duration.num_hours(),
+                    start_duration.num_minutes(),
+                    start_duration.num_seconds(),
+                    start_duration.num_milliseconds(),
+                    end_duration.num_hours(),
+                    end_duration.num_minutes(),
+                    end_duration.num_seconds(),
+                    end_duration.num_milliseconds(),
+                    now.format("%F %H:%M:%S,%3f"),
+                );
+                let _ = subtitle_file.write_all(subtitle.as_bytes()).map_err(|err| {
+                    log::error!(err:?, from:? = msg.from; "failed to write subtitles to disk");
+                });
+                subtitle_id += 1;
+                last_timestamp = now;
+            }
+
             log::debug!(id=msg.id, len=msg.video_data.len(); "wrote message to disk");
         } else {
-            std::thread::sleep(Duration::from_millis(5));
+            std::thread::sleep(std::time::Duration::from_millis(5));
         }
     }
 }
@@ -69,7 +115,7 @@ fn run_broadcast_server_forever(port: u16) -> std::io::Result<()> {
         match File::open(file_name) {
             Err(err) => {
                 log::error!(err:?, file_name; "failed to open file, retrying");
-                thread::sleep(Duration::from_secs(1));
+                thread::sleep(std::time::Duration::from_secs(1));
             }
             Ok(file) => break file,
         }
@@ -107,7 +153,7 @@ fn handle_client(stream: &mut TcpStream, file: File) -> std::io::Result<()> {
             return Err(std::io::Error::from(ErrorKind::UnexpectedEof));
         }
         if sent == 0 {
-            std::thread::sleep(Duration::from_millis(5));
+            std::thread::sleep(std::time::Duration::from_millis(5));
         }
 
         offset = offset.saturating_add(sent as u64);
