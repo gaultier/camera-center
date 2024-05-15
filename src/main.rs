@@ -71,7 +71,17 @@ fn write_to_disk_forever(disk_ring_buffer: Arc<ArrayQueue<Message>>) -> std::io:
 
 fn run_broadcast_server_forever(port: u16) -> std::io::Result<()> {
     let listener = TcpListener::bind(format!("0.0.0.0:{}", port))?;
-    let file = File::open("cam.mpegts")?;
+    let file_name = "cam.mpegts";
+
+    let file = loop {
+        match File::open(file_name) {
+            Err(err) => {
+                log::error!(err:?, file_name; "failed to open file, retrying");
+                thread::sleep(Duration::from_secs(1));
+            }
+            Ok(file) => break file,
+        }
+    };
 
     loop {
         for stream in listener.incoming() {
@@ -104,6 +114,10 @@ fn handle_client(stream: &mut TcpStream, file: File) -> std::io::Result<()> {
             log::error!(old_offset; "failed to sendfile(2)");
             return Err(std::io::Error::from(ErrorKind::UnexpectedEof));
         }
+        if sent == 0 {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+
         offset = offset.saturating_add(sent as u64);
 
         log::debug!( sent, old_offset, new_offset=offset; "served message");
