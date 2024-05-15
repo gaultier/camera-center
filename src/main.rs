@@ -74,7 +74,10 @@ fn make_subtitle(
     )
 }
 
-fn open_output_files(now: &DateTime<Local>) -> std::io::Result<(File, File)> {
+fn open_output_files(
+    now: &DateTime<Local>,
+    recording_beginning: &mut DateTime<Local>,
+) -> std::io::Result<(File, File)> {
     let now_fmt = now.format("%FT%H:%M:%S");
 
     let video_file = std::fs::OpenOptions::new()
@@ -87,14 +90,18 @@ fn open_output_files(now: &DateTime<Local>) -> std::io::Result<(File, File)> {
         .create(true)
         .open(format!("{}.srt", now_fmt))?;
 
+    log::info!(now_fmt:?; "opened new output files");
+    *recording_beginning = now.clone();
+
     Ok((video_file, subtitle_file))
 }
 
 fn write_to_disk_forever(disk_ring_buffer: Arc<ArrayQueue<Message>>) -> std::io::Result<()> {
-    let (mut video_file, mut subtitle_file) = open_output_files(&chrono::offset::Local::now())?;
+    let mut recording_beginning = chrono::offset::Local::now();
+    let (mut video_file, mut subtitle_file) =
+        open_output_files(&chrono::offset::Local::now(), &mut recording_beginning)?;
     let mut subtitle_id: usize = 1;
-    let recording_beginning = chrono::offset::Local::now();
-    let mut last_subtitle = recording_beginning;
+    let mut last_subtitle = recording_beginning.clone();
 
     loop {
         if let Some(msg) = disk_ring_buffer.pop() {
@@ -118,7 +125,8 @@ fn write_to_disk_forever(disk_ring_buffer: Arc<ArrayQueue<Message>>) -> std::io:
             let duration_since_recording_beginning = now - recording_beginning;
 
             if duration_since_recording_beginning >= MAX_FILE_RECORDING_DURATION {
-                (video_file, subtitle_file) = open_output_files(&chrono::offset::Local::now())?;
+                (video_file, subtitle_file) =
+                    open_output_files(&chrono::offset::Local::now(), &mut recording_beginning)?;
             }
 
             log::debug!(id=msg.id, len=msg.video_data.len(); "wrote message to disk");
