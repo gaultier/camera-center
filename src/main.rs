@@ -138,7 +138,7 @@ fn write_to_disk_forever(disk_ring_buffer: Arc<ArrayQueue<Message>>) -> std::io:
 
 fn run_broadcast_server_forever(port: u16) -> std::io::Result<()> {
     let listener = TcpListener::bind(format!("0.0.0.0:{}", port))?;
-    let file_name = "cam.mpegts";
+    let file_name = "live.ts";
 
     let file = loop {
         match File::open(file_name) {
