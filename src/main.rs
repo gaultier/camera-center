@@ -1,3 +1,4 @@
+use chrono::{DateTime, Local};
 use crossbeam_queue::ArrayQueue;
 use std::fs::File;
 use std::io::{ErrorKind, Write};
@@ -42,6 +43,27 @@ fn receive_stream_udp_forever(
     }
 }
 
+fn make_subtitle(
+    now: &DateTime<Local>,
+    id: usize,
+    start_duration: &chrono::Duration,
+    end_duration: &chrono::Duration,
+) -> String {
+    format!(
+        "{}\n{}:{}:{},{} --> {}:{}:{},{}\n{}\n\n\n",
+        id,
+        start_duration.num_hours(),
+        start_duration.num_minutes(),
+        start_duration.num_seconds(),
+        start_duration.num_milliseconds(),
+        end_duration.num_hours(),
+        end_duration.num_minutes(),
+        end_duration.num_seconds(),
+        end_duration.num_milliseconds(),
+        now.format("%F %H:%M:%S,%3f"),
+    )
+}
+
 fn write_to_disk_forever(disk_ring_buffer: Arc<ArrayQueue<Message>>) -> std::io::Result<()> {
     let mut video_file = std::fs::OpenOptions::new()
         .append(true)
@@ -74,19 +96,7 @@ fn write_to_disk_forever(disk_ring_buffer: Arc<ArrayQueue<Message>>) -> std::io:
             );
 
             if elapsed > 1_000 {
-                let subtitle = format!(
-                    "{}\n{}:{}:{},{} --> {}:{}:{},{}\n{}\n\n\n",
-                    subtitle_id,
-                    start_duration.num_hours(),
-                    start_duration.num_minutes(),
-                    start_duration.num_seconds(),
-                    start_duration.num_milliseconds(),
-                    end_duration.num_hours(),
-                    end_duration.num_minutes(),
-                    end_duration.num_seconds(),
-                    end_duration.num_milliseconds(),
-                    now.format("%F %H:%M:%S,%3f"),
-                );
+                let subtitle = make_subtitle(&now, subtitle_id, &start_duration, &end_duration);
                 let _ = subtitle_file.write_all(subtitle.as_bytes()).map_err(|err| {
                     log::error!(err:?, from:? = msg.from; "failed to write subtitles to disk");
                 });
