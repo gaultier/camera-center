@@ -89,7 +89,18 @@ fn write_to_disk_forever(disk_ring_buffer: Arc<ArrayQueue<Message>>) -> std::io:
 
 fn run_broadcast_server_forever(port: u16) -> std::io::Result<()> {
     let listener = TcpListener::bind(format!("0.0.0.0:{}", port))?;
-    let path = std::fs::read_dir(".")
+    loop {
+        for stream in listener.incoming() {
+            let mut stream = stream?;
+            thread::spawn(move || {
+                let _ = handle_client(&mut stream);
+            });
+        }
+    }
+}
+
+fn handle_client(stream: &mut TcpStream) -> std::io::Result<()> {
+    let input_path = std::fs::read_dir(".")
         .expect("Couldn't access local directory")
         .flatten() // Remove failed
         .filter(|f| {
@@ -97,30 +108,23 @@ fn run_broadcast_server_forever(port: u16) -> std::io::Result<()> {
         }) // Filter out directories (only consider files)
         .max_by_key(|x| x.metadata().unwrap().modified().unwrap()); // Get the most recently modified file
 
-    let file = loop {
-        match File::open(path.as_ref().map(|x| x.file_name()).unwrap_or_default()) {
+    let input_file = loop {
+        match File::open(
+            input_path
+                .as_ref()
+                .map(|x| x.file_name())
+                .unwrap_or_default(),
+        ) {
             Err(err) => {
-                log::error!(err:?, path:? ; "failed to open file, retrying");
+                log::error!(err:?, input_path:? ; "failed to open file, retrying");
                 thread::sleep(std::time::Duration::from_secs(1));
             }
             Ok(file) => break file,
         }
     };
 
-    loop {
-        for stream in listener.incoming() {
-            let mut stream = stream?;
-            let file = file.try_clone()?;
-            thread::spawn(move || {
-                let _ = handle_client(&mut stream, file);
-            });
-        }
-    }
-}
-
-fn handle_client(stream: &mut TcpStream, file: File) -> std::io::Result<()> {
     let typical_packet_size = 188usize;
-    let mut offset = file.metadata()?.len();
+    let mut offset = input_file.metadata()?.len();
     offset = offset.saturating_sub(typical_packet_size as u64);
 
     loop {
@@ -129,7 +133,7 @@ fn handle_client(stream: &mut TcpStream, file: File) -> std::io::Result<()> {
         let sent = unsafe {
             libc::sendfile(
                 stream.as_raw_fd(),
-                file.as_raw_fd(),
+                input_file.as_raw_fd(),
                 offet_ptr,
                 typical_packet_size,
             )
