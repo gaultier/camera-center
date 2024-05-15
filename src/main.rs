@@ -1,5 +1,6 @@
 use chrono::{DateTime, Local, TimeDelta};
 use crossbeam_queue::ArrayQueue;
+use std::ffi::OsString;
 use std::fs::File;
 use std::io::{ErrorKind, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
@@ -99,25 +100,22 @@ fn run_broadcast_server_forever(port: u16) -> std::io::Result<()> {
     }
 }
 
-fn open_freshest_file_on_disk() -> std::io::Result<File> {
+fn open_freshest_file_on_disk() -> std::io::Result<(File, OsString)> {
     let input_path = std::fs::read_dir(".")
         .expect("Couldn't access local directory")
         .flatten() // Remove failed
         .filter(|f| {
             f.metadata().unwrap().is_file() && f.path().extension().unwrap_or_default() == "ts"
         }) // Filter out directories (only consider files)
-        .max_by_key(|x| x.metadata().unwrap().modified().unwrap()); // Get the most recently modified file
+        .max_by_key(|x| x.metadata().unwrap().modified().unwrap()) // Get the most recently modified file
+        .map(|x| x.file_name())
+        .ok_or(std::io::Error::from(std::io::ErrorKind::NotFound))?;
 
-    File::open(
-        input_path
-            .as_ref()
-            .map(|x| x.file_name())
-            .unwrap_or_default(),
-    )
+    Ok((File::open(&input_path)?, input_path))
 }
 
 fn handle_broadcast_client(stream: &mut TcpStream) -> std::io::Result<()> {
-    let input_file = loop {
+    let (input_file, _input_path) = loop {
         match open_freshest_file_on_disk() {
             Err(err) => {
                 log::error!(err:?; "failed to open freshest file, retrying");
