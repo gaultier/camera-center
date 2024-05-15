@@ -138,31 +138,29 @@ fn handle_broadcast_client(stream: &mut TcpStream) -> std::io::Result<()> {
     for res in rx {
         match res {
             Ok(event)
-                if event.kind == notify::EventKind::Create(notify::event::CreateKind::File)
-                    && event.paths.len() == 1
-                    && event.paths[0].extension().unwrap_or_default() == "ts" =>
+                if event.kind == notify::EventKind::Create(notify::event::CreateKind::File) =>
             {
-                let path = &event.paths[0];
-                log::info!(path:?; "new video file");
-                input_file = File::open(path).unwrap();
-                offset = 0;
+                let video_file = event
+                    .paths
+                    .iter()
+                    .find(|x| x.extension().unwrap_or_default() == "ts");
+
+                if let Some(path) = video_file {
+                    log::info!(path:?; "new video file");
+                    input_file = File::open(path).unwrap();
+                    offset = 0;
+                }
             }
             Ok(event)
                 if event.kind
                     == notify::EventKind::Modify(notify::event::ModifyKind::Data(
-                        notify::event::DataChange::Content,
+                        notify::event::DataChange::Any,
                     )) =>
             {
                 let old_offset = offset;
                 let offet_ptr: *mut i64 = &mut (offset as i64);
-                let typical_packet_size = 1472;
                 let sent = unsafe {
-                    libc::sendfile(
-                        stream.as_raw_fd(),
-                        input_file.as_raw_fd(),
-                        offet_ptr,
-                        typical_packet_size,
-                    )
+                    libc::sendfile(stream.as_raw_fd(), input_file.as_raw_fd(), offet_ptr, 8192)
                 };
                 if sent == -1 {
                     log::error!(old_offset; "failed to sendfile(2)");
