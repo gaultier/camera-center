@@ -13,12 +13,6 @@ struct Message {
     id: usize,
 }
 
-struct Subtitle {
-    sequence_number: usize,
-    start: usize,
-    end: usize,
-}
-
 fn receive_stream_udp_forever(
     port: u16,
     disk_ring_buffer: Arc<ArrayQueue<Message>>,
