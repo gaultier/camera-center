@@ -47,6 +47,7 @@ pub fn main() !void {
     var child = std.ChildProcess.init(&args, allocator);
     // child.stderr_behavior = std.ChildProcess.StdIo.Pipe;
     child.stdout = std.fs.File{ .handle = socket };
+    child.stdout_behavior = std.ChildProcess.StdIo.Pipe;
 
     // var stderr_buf = [_]u8{0} ** 1024;
 
