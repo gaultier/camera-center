@@ -6,29 +6,18 @@ const MessageKind = enum(u2) {
     MotionStopped,
 };
 
-const NetMessage = packed struct {
-    kind: MessageKind,
-    len: u24,
-};
-
-const NetMessageError = error{
-    ParseFailed,
-};
-
-fn parse_message(in: []u8) NetMessageError!NetMessage {
-    if (in.len < @sizeOf(NetMessage)) {
-        return NetMessageError.ParseFailed;
-    }
-    return std.mem.bytesAsSlice(NetMessage, in)[0];
-}
-
 pub fn main() !void {
-    const socket = std.posix.socket(std.posix.AF.INET, std.posix.SOCK.DGRAM, 0) catch unreachable;
+    const socket = std.posix.socket(std.posix.AF.INET, std.posix.SOCK.STREAM, 0) catch unreachable;
     const address = std.net.Address.parseIp4("0.0.0.0", 12345) catch unreachable;
-    std.posix.bind(socket, &address.any, address.getOsSockLen()) catch |err| {
-        std.debug.print("failed to bind {}\n", .{err});
+const server = std.net.Address.listen(address, std.net.Address.ListenOptions{.reuse_address=true}) catch |err| {
+        std.debug.print("failed to listen {}\n", .{err});
         return;
-    };
+};
+const connection = server.accept(&server) catch |err| {
+        std.debug.print("failed to accept {}\n", .{err});
+        return;
+};
+    
 
     var poll_fds = [_]std.posix.pollfd{
         .{
@@ -57,9 +46,6 @@ pub fn main() !void {
         if ((poll_fds[0].revents & std.posix.POLL.IN) != 0) {
             if (std.posix.read(poll_fds[0].fd, &read_buf)) |read| {
                 std.debug.print("read {}\n", .{read});
-
-                const message = parse_message(read_buf[0..read]);
-                std.debug.print("message {any}\n", .{message});
 
                 if (std.posix.write(file, read_buf[0..read])) |written| {
                     std.debug.print("written {}\n", .{written});

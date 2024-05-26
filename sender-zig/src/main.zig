@@ -1,15 +1,15 @@
 const std = @import("std");
 
-const MessageKind = enum(u2) {
+const MessageKind = enum(u8) {
     VideoStream,
     MotionStarted,
     MotionStopped,
 };
 
-const NetMessage = packed struct {
-    kind: MessageKind,
-    len: u24,
-};
+// const NetMessage = packed struct {
+//     kind: MessageKind,
+//     len: u24,
+// };
 
 const State = enum {
     Idle,
@@ -23,7 +23,7 @@ pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
 
-    const socket = std.posix.socket(std.posix.AF.INET, std.posix.SOCK.DGRAM, 0) catch unreachable;
+    var socket = std.posix.socket(std.posix.AF.INET, std.posix.SOCK.STREAM, 0) catch unreachable;
     const parsed_address = std.net.Address.parseIp4("192.168.1.156", 12345) catch unreachable;
     std.posix.connect(socket, &parsed_address.any, parsed_address.getOsSockLen()) catch |err| {
         std.debug.print("failed to connect socket {}", .{err});
@@ -111,18 +111,21 @@ pub fn main() !void {
 
         if ((poll_fds[1].revents & std.posix.POLL.IN) != 0) {
             if (std.posix.read(poll_fds[1].fd, &stdout_buf)) |read| {
-                const frame_data = stdout_buf[0..read];
+                const message = stdout_buf[0..read];
 
-                var message = NetMessage{};
                 if (state == State.MotionStarted) {
-                    message = NetMessage{ .kind = MessageKind.MotionStarted };
-                    const message_bytes = std.mem.sliceAsBytes([1]NetMessage{message});
-
-                    if (std.posix.send(socket, &message_bytes, 0)) |sent| {
+                    if (std.posix.send(socket, &message, 0)) |sent| {
                         std.debug.print("sent {}\n", .{sent});
                     } else |err| {
                         std.debug.print("failed to send data len={} err={}\n", .{ read, err });
                     }
+                } else if (state == State.MotionStopped) {
+                    std.posix.close(socket);
+                    socket = std.posix.socket(std.posix.AF.INET, std.posix.SOCK.STREAM, 0) catch unreachable;
+                    std.posix.connect(socket, &parsed_address.any, parsed_address.getOsSockLen()) catch |err| {
+                        std.debug.print("failed to connect socket {}", .{err});
+                        std.posix.exit(1);
+                    };
                 }
             } else |err| {
                 std.debug.print("stdout read error {}\n", .{err});
