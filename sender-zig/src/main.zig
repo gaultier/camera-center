@@ -16,6 +16,10 @@ fn parse_child_output(in: std.fs.File) !void {
     while (true) {
         if (std.posix.read(in.handle, &read_buf)) |read| {
             std.debug.print("stderr len={} read={s}\n", .{ read, read_buf[0..read] });
+            if (read == 0) {
+                std.debug.print("0 read, child likely stopped", .{});
+                return;
+            }
 
             const stderr = read_buf[0..read];
             var it = std.mem.splitAny(u8, stderr, "\n ");
