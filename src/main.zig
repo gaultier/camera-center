@@ -8,7 +8,7 @@ const MessageKind = enum(u2) {
 
 const NetMessage = packed struct {
     kind: MessageKind,
-    len: u30,
+    len: u24,
 };
 
 const NetMessageError = error{

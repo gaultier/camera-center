@@ -1,6 +1,22 @@
 const std = @import("std");
 
-const State = enum { Idle, ReadFrameData };
+const MessageKind = enum(u2) {
+    VideoStream,
+    MotionStarted,
+    MotionStopped,
+};
+
+const NetMessage = packed struct {
+    kind: MessageKind,
+    len: u24,
+};
+
+const State = enum {
+    Idle,
+    MotionStarted,
+    MotionStopped,
+};
+
 const ParseState = enum { None, SeenMotion };
 
 pub fn main() !void {
@@ -79,11 +95,11 @@ pub fn main() !void {
                     if (std.mem.eql(u8, word, "Motion")) {
                         parse_state = ParseState.SeenMotion;
                     } else if (parse_state == ParseState.SeenMotion and std.mem.eql(u8, word, "detected")) {
-                        state = State.ReadFrameData;
+                        state = State.MotionStarted;
                         std.debug.print("state=read frame data\n", .{});
                         parse_state = ParseState.None;
                     } else if (parse_state == ParseState.SeenMotion and std.mem.eql(u8, word, "stopped")) {
-                        state = State.Idle;
+                        state = State.MotionStopped;
                         std.debug.print("state=idle\n", .{});
                         parse_state = ParseState.None;
                     }
@@ -97,8 +113,12 @@ pub fn main() !void {
             if (std.posix.read(poll_fds[1].fd, &stdout_buf)) |read| {
                 const frame_data = stdout_buf[0..read];
 
-                if (state == State.ReadFrameData) {
-                    if (std.posix.send(socket, frame_data, 0)) |sent| {
+                var message = NetMessage{};
+                if (state == State.MotionStarted) {
+                    message = NetMessage{ .kind = MessageKind.MotionStarted };
+                    const message_bytes = std.mem.sliceAsBytes([1]NetMessage{message});
+
+                    if (std.posix.send(socket, &message_bytes, 0)) |sent| {
                         std.debug.print("sent {}\n", .{sent});
                     } else |err| {
                         std.debug.print("failed to send data len={} err={}\n", .{ read, err });
