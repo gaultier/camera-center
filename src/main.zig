@@ -55,11 +55,10 @@ pub fn main() !void {
 
         var i: u64 = 0;
         while (i < poll_fds.items.len) {
-            defer i += 1;
             const poll_fd = poll_fds.items[i];
 
             if ((poll_fd.revents & std.posix.POLL.ERR) != 0) {
-                std.debug.print("client closed connection\n", .{});
+                std.debug.print("client err\n", .{});
                 std.posix.close(client_fd);
                 _ = poll_fds.swapRemove(i);
                 continue;
@@ -67,19 +66,29 @@ pub fn main() !void {
 
             if ((poll_fd.revents & std.posix.POLL.IN) != 0) {
                 if (std.posix.read(poll_fd.fd, &read_buf)) |read| {
+                    if (read == 0) {
+                        std.debug.print("client closed\n", .{});
+                        std.posix.close(client_fd);
+                        _ = poll_fds.swapRemove(i);
+                        continue;
+                    }
+
                     std.debug.print("read {}\n", .{read});
 
                     if (std.posix.write(file, read_buf[0..read])) |written| {
                         std.debug.print("written {}\n", .{written});
                     } else |err| {
                         std.debug.print("failed to write {}\n", .{err});
+                        i += 1;
                         continue;
                     }
                 } else |err| {
                     std.debug.print("failed to read {}\n", .{err});
+                    i += 1;
                     continue;
                 }
             }
+            i += 1;
         }
     }
 }
