@@ -1,23 +1,12 @@
 const std = @import("std");
 
-const MessageKind = enum(u8) {
-    VideoStream,
-    MotionStarted,
-    MotionStopped,
-};
-
-// const NetMessage = packed struct {
-//     kind: MessageKind,
-//     len: u24,
+// const State = enum {
+//     Idle,
+//     MotionStarted,
+//     MotionStopped,
 // };
 
-const State = enum {
-    Idle,
-    MotionStarted,
-    MotionStopped,
-};
-
-const ParseState = enum { None, SeenMotion };
+// const ParseState = enum { None, SeenMotion };
 
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -56,13 +45,14 @@ pub fn main() !void {
         "-",
     };
     var child = std.ChildProcess.init(&args, allocator);
-    child.stderr_behavior = std.ChildProcess.StdIo.Pipe;
-    child.stdout = socket;
+    // child.stderr_behavior = std.ChildProcess.StdIo.Pipe;
+    child.stdout = std.fs.File{ .handle = socket };
 
     // var stderr_buf = [_]u8{0} ** 1024;
 
     try child.spawn();
-    _ = child.wait();
+    const term = try child.wait();
+    std.debug.print("child wait {}", .{term});
 
     // var poll_fds = [2]std.posix.pollfd{ .{
     //     .fd = child.stderr.?.handle,
