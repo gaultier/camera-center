@@ -30,7 +30,9 @@ pub fn main() !void {
         return;
     }
 
-    var poll_fds = std.ArrayList.ArrayList(std.posix.pollfd);
+    var allocator_memory = [_]u8{0} ** 256;
+    var allocator = std.heap.FixedBufferAllocator.init(&allocator_memory);
+    var poll_fds = std.ArrayList(std.posix.pollfd).init(allocator.allocator());
     var read_buf = [_]u8{0} ** (1 << 16);
 
     var file: std.posix.fd_t = 0;
@@ -42,25 +44,25 @@ pub fn main() !void {
     }
 
     while (true) {
-        _ = std.posix.poll(&poll_fds, -1) catch |err| {
+        _ = std.posix.poll(poll_fds.items, -1) catch |err| {
             std.debug.print("failed to poll {}\n", .{err});
             continue;
         };
 
-        var i = 0;
-        while (i < poll_fds.len) {
+        var i: u64 = 0;
+        while (i < poll_fds.items.len) {
             defer i += 1;
-            const poll_fd = poll_fds[i];
+            const poll_fd = poll_fds.items[i];
 
             if ((poll_fd.revents & std.posix.POLL.ERR) != 0) {
                 std.debug.print("client closed connection\n", .{});
                 std.posix.close(client_fd);
-                // std.array_list.ArrayList
+                _ = poll_fds.swapRemove(i);
                 continue;
             }
 
-            if ((poll_fds[0].revents & std.posix.POLL.IN) != 0) {
-                if (std.posix.read(poll_fds[0].fd, &read_buf)) |read| {
+            if ((poll_fd.revents & std.posix.POLL.IN) != 0) {
+                if (std.posix.read(poll_fd.fd, &read_buf)) |read| {
                     std.debug.print("read {}\n", .{read});
 
                     if (std.posix.write(file, read_buf[0..read])) |written| {
