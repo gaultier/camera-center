@@ -43,7 +43,13 @@ fn parse_child_output(in: std.fs.File, address_dest: std.net.Address) !void {
                     parse_state = ParseState.None;
 
                     const time_end = std.time.milliTimestamp();
-                    _ = time_end;
+                    const send_data = [2]i64{ time_start, time_end };
+                    const send_data_bytes: [16]u8 = @bitCast(send_data);
+                    if (std.posix.write(socket, &send_data_bytes)) |written| {
+                        std.debug.print("written {}", .{written});
+                    } else |err| {
+                        std.debug.print("write error {}\n", .{err});
+                    }
                 }
             }
         } else |err| {
