@@ -1,15 +1,27 @@
 const std = @import("std");
 
-// const MessageKind = enum {
-//     VideoStream,
-//     MotionStarted,
-//     MotionStopped,
-// };
+const MessageKind = enum(u2) {
+    VideoStream,
+    MotionStarted,
+    MotionStopped,
+};
 
-// const NetMessage = struct {
-//     kind: MessageKind,
-//     len: u32,
-// };
+const NetMessage = packed struct {
+    kind: MessageKind,
+    len: u30,
+    frame_data: []u8,
+};
+
+const NetMessageError = error{
+    ParseFailed,
+};
+
+fn parse_message(in: []u8) NetMessage!NetMessageError {
+    if (in.len < @sizeOf(NetMessage)) {
+        return NetMessageError.ParseFailed;
+    }
+    return std.mem.bytesAsSlice(@byteSwap(in))[0];
+}
 
 pub fn main() !void {
     const socket = std.posix.socket(std.posix.AF.INET, std.posix.SOCK.DGRAM, 0) catch unreachable;
@@ -46,6 +58,9 @@ pub fn main() !void {
         if ((poll_fds[0].revents & std.posix.POLL.IN) != 0) {
             if (std.posix.read(poll_fds[0].fd, &read_buf)) |read| {
                 std.debug.print("read {}\n", .{read});
+
+                const message = parse_message(read_buf[0..read]);
+                std.debug.print("message {}\n", .{message});
 
                 if (std.posix.write(file, read_buf[0..read])) |written| {
                     std.debug.print("written {}\n", .{written});
