@@ -13,14 +13,21 @@ pub fn main() !void {
     defer arena.deinit();
 
     const socket = std.posix.socket(std.posix.AF.INET, std.posix.SOCK.DGRAM, 0) catch unreachable;
-    const parsed_address = std.net.Address.parseIp4("192.168.1.156", 12345) catch unreachable;
+
+    var destination_address: []const u8 = undefined;
+    var args = std.process.args();
+    _ = args.skip();
+    if (args.next()) |arg| {
+        destination_address = arg;
+    }
+    const parsed_address = std.net.Address.parseIp4(destination_address, 12345) catch unreachable;
     std.posix.connect(socket, &parsed_address.any, parsed_address.getOsSockLen()) catch |err| {
         std.debug.print("failed to connect socket {}", .{err});
         std.posix.exit(1);
     };
 
     const allocator = arena.allocator();
-    const args = [_][]const u8{
+    const child_args = [_][]const u8{
         "libcamera-vid",
         "-t",
         "0",
@@ -44,7 +51,7 @@ pub fn main() !void {
         "-o",
         "-",
     };
-    var child = std.ChildProcess.init(&args, allocator);
+    var child = std.ChildProcess.init(&child_args, allocator);
     // child.stderr_behavior = std.ChildProcess.StdIo.Pipe;
     child.stdout = std.fs.File{ .handle = socket };
     child.stdout_behavior = std.ChildProcess.StdIo.Pipe;
