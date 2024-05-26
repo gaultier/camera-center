@@ -9,18 +9,17 @@ const MessageKind = enum(u2) {
 const NetMessage = packed struct {
     kind: MessageKind,
     len: u30,
-    frame_data: []u8,
 };
 
 const NetMessageError = error{
     ParseFailed,
 };
 
-fn parse_message(in: []u8) NetMessage!NetMessageError {
+fn parse_message(in: []u8) NetMessageError!NetMessage {
     if (in.len < @sizeOf(NetMessage)) {
         return NetMessageError.ParseFailed;
     }
-    return std.mem.bytesAsSlice(@byteSwap(in))[0];
+    return std.mem.bytesAsSlice(NetMessage, in)[0];
 }
 
 pub fn main() !void {
@@ -60,7 +59,7 @@ pub fn main() !void {
                 std.debug.print("read {}\n", .{read});
 
                 const message = parse_message(read_buf[0..read]);
-                std.debug.print("message {}\n", .{message});
+                std.debug.print("message {any}\n", .{message});
 
                 if (std.posix.write(file, read_buf[0..read])) |written| {
                     std.debug.print("written {}\n", .{written});
