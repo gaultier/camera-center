@@ -12,7 +12,7 @@ pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
 
-    const socket = std.posix.socket(std.posix.AF.INET, std.posix.SOCK.DGRAM, 0) catch unreachable;
+    // const socket = std.posix.socket(std.posix.AF.INET, std.posix.SOCK.DGRAM, 0) catch unreachable;
 
     var destination_address: []const u8 = undefined;
     var args = std.process.args();
@@ -20,13 +20,14 @@ pub fn main() !void {
     if (args.next()) |arg| {
         destination_address = arg;
     }
-    const parsed_address = std.net.Address.parseIp4(destination_address, 12345) catch unreachable;
-    std.posix.connect(socket, &parsed_address.any, parsed_address.getOsSockLen()) catch |err| {
-        std.debug.print("failed to connect socket {}", .{err});
-        std.posix.exit(1);
-    };
+    // _ = std.net.Address.parseIp4(destination_address, 12345) catch unreachable;
+    // std.posix.connect(socket, &parsed_address.any, parsed_address.getOsSockLen()) catch |err| {
+    //     std.debug.print("failed to connect socket {}", .{err});
+    //     std.posix.exit(1);
+    // };
 
     const allocator = arena.allocator();
+    const udp_address: []const u8 = try std.mem.concat(allocator, u8, &[2][]const u8{ "udp://", destination_address });
     const child_args = [_][]const u8{
         "libcamera-vid",
         "-t",
@@ -49,12 +50,11 @@ pub fn main() !void {
         "libav",
         "--libav-format=mpegts",
         "-o",
-        "-",
+        udp_address,
     };
     var child = std.ChildProcess.init(&child_args, allocator);
     // child.stderr_behavior = std.ChildProcess.StdIo.Pipe;
-    child.stdout = std.fs.File{ .handle = socket };
-    child.stdout_behavior = std.ChildProcess.StdIo.Pipe;
+    // child.stdout = std.fs.File{ .handle = socket };
 
     // var stderr_buf = [_]u8{0} ** 1024;
 
