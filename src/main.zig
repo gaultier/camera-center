@@ -20,6 +20,11 @@ pub fn main() !void {
         return;
     };
 
+    var allocator_memory = [_]u8{0} ** 256;
+    var allocator = std.heap.FixedBufferAllocator.init(&allocator_memory);
+    var poll_fds = std.ArrayList(std.posix.pollfd).init(allocator.allocator());
+    var read_buf = [_]u8{0} ** (1 << 16);
+
     var peer_address: std.net.Address = undefined;
     var addr_len: std.posix.socklen_t = @sizeOf(std.net.Address);
     var client_fd: i32 = 0;
@@ -29,11 +34,10 @@ pub fn main() !void {
         std.debug.print("failed to accept {}\n", .{err});
         return;
     }
-
-    var allocator_memory = [_]u8{0} ** 256;
-    var allocator = std.heap.FixedBufferAllocator.init(&allocator_memory);
-    var poll_fds = std.ArrayList(std.posix.pollfd).init(allocator.allocator());
-    var read_buf = [_]u8{0} ** (1 << 16);
+    poll_fds.append(.{ .fd = client_fd, .events = std.posix.POLL.IN, .revents = 0 }) catch |err| {
+        std.debug.print("failed to add client_fd {}", .{err});
+        return;
+    };
 
     var file: std.posix.fd_t = 0;
     if (std.posix.open("out.ts", std.posix.O{ .ACCMODE = .WRONLY, .CREAT = true, .APPEND = true }, 0o600)) |fd| {
