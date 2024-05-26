@@ -30,7 +30,7 @@ pub fn main() !void {
     var read_buf = [_]u8{0} ** (1 << 16);
 
     var file: std.posix.fd_t = 0;
-    if (std.posix.open("out.ts", std.posix.O{ .CREAT = true, .APPEND = true }, 0o600)) |fd| {
+    if (std.posix.open("out.ts", std.posix.O{ .ACCMODE = .WRONLY, .CREAT = true, .APPEND = true }, 0o600)) |fd| {
         file = fd;
     } else |err| {
         std.debug.print("failed to open file {}\n", .{err});
