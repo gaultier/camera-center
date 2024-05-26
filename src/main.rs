@@ -169,8 +169,8 @@ fn main() {
     // Initialize the logger.
     std_logger::Config::logfmt().init();
 
-    let disk_ring_buffer = Arc::new(ArrayQueue::new(256));
-    let net_ring_buffer = Arc::new(ArrayQueue::new(256));
+    let disk_ring_buffer = Arc::new(ArrayQueue::new(1024));
+    let net_ring_buffer = Arc::new(ArrayQueue::new(1024));
 
     let disk_ring_buffer1 = disk_ring_buffer.clone();
     let net_ring_buffer1 = net_ring_buffer.clone();
