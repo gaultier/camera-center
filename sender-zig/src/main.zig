@@ -1,73 +1,40 @@
 const std = @import("std");
 
-const State = enum { SeenMotionDetected, SeenMotionStopped };
-
-fn parse(
-    input: []const u8,
-    advanced: *usize,
-) ?State {
-    const needle_motion_stopped = "Motion stopped\n";
-    const needle_motion_detected = "Motion detected\n";
-
-    if (std.mem.indexOf(u8, input, "\n")) |idx1| {
-        if (std.mem.indexOf(u8, input[0 .. idx1 + 1], needle_motion_detected)) |_| {
-            advanced.* = idx1 + 1;
-            return .SeenMotionDetected;
-        }
-
-        if (std.mem.indexOf(u8, input[0 .. idx1 + 1], needle_motion_stopped)) |_| {
-            advanced.* = idx1 + 1;
-            return .SeenMotionStopped;
-        }
-
-        advanced.* = input.len; // Nothing interesting seen.
-    }
-
-    return null;
-}
+const needle_motion_stopped = "Motion stopped";
+const needle_motion_detected = "Motion detected";
 
 fn notify_forever(in: std.fs.File, out: std.fs.File) !void {
     var time_motion_detected: i64 = 0;
 
-    var read_buf = [_]u8{0} ** 1024;
-    var current: []u8 = read_buf[0..0];
-    while (true) {
-        // There might be carry over data, do not overwrite it.
-        if (std.posix.read(in.handle, read_buf[current.len..])) |n| {
-            const data = read_buf[current.len .. current.len + n];
-            std.debug.print("len={} read={s} {x}\n", .{ n, data, data });
-            if (n == 0) {
-                std.debug.print("0 read, input likely stopped", .{});
-                return;
-            }
+    var buffered_reader = std.io.bufferedReader(in.reader());
+    const reader = buffered_reader.reader();
 
-            current = data;
-        } else |err| {
-            std.debug.print("stderr read error {}\n", .{err});
-            continue;
+    // FIXME
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+    const allocator = gpa.allocator();
+    var line = std.ArrayList(u8).init(allocator);
+    const writer = line.writer();
+
+    while (reader.streamUntilDelimiter(writer, '\n', null)) {
+        defer line.clearRetainingCapacity();
+
+        if (std.mem.eql(u8, line.items, needle_motion_detected)) {
+            time_motion_detected = std.time.milliTimestamp();
+            std.debug.print("detected {}", .{time_motion_detected});
+            _ = out.write(&[_]u8{0}) catch |err| {
+                std.debug.print("failed to send {}", .{err});
+            };
         }
-
-        var advanced: usize = 0;
-        while (parse(current, &advanced)) |token| {
+        if (std.mem.eql(u8, line.items, needle_motion_detected)) {
             const now = std.time.milliTimestamp();
-
-            current = current[advanced..];
-
-            switch (token) {
-                .SeenMotionDetected => {
-                    time_motion_detected = now;
-                    std.debug.print("{} {}\n", .{ token, time_motion_detected });
-                    _ = out.write("motion detected\n") catch {}; // FIXME
-                },
-                .SeenMotionStopped => {
-                    std.debug.print("{} {} {}\n", .{ token, time_motion_detected, now });
-                    _ = out.write("motion stopped\n") catch {}; // FIXME
-                },
-            }
+            std.debug.print("stopped {} {}", .{ time_motion_detected, now });
+            _ = out.write(&[_]u8{1}) catch |err| {
+                std.debug.print("failed to send {}", .{err});
+            };
         }
-
-        // Carry over left-over data.
-        std.mem.copyBackwards(u8, &read_buf, current);
+    } else |err| {
+        std.debug.print("stderr read error {}\n", .{err});
     }
 }
 
@@ -90,49 +57,4 @@ pub fn main() !void {
     try std.posix.connect(socket, &address.any, address.getOsSockLen());
 
     try notify_forever(std.io.getStdIn(), .{ .handle = socket });
-}
-
-test "parse_tokens" {
-    {
-        var advanced: usize = 0;
-        const res = parse("Motion", &advanced);
-        try std.testing.expectEqual(null, res);
-        try std.testing.expectEqual(0, advanced);
-    }
-    {
-        var advanced: usize = 0;
-        const res = parse("Motion stoppe", &advanced);
-        try std.testing.expectEqual(null, res);
-        try std.testing.expectEqual(0, advanced);
-    }
-    {
-        var advanced: usize = 0;
-        const res = parse("foobar\n", &advanced);
-        try std.testing.expectEqual(null, res);
-        try std.testing.expectEqual(7, advanced);
-    }
-    {
-        var advanced: usize = 0;
-        const res = parse("Motion detected\n", &advanced);
-        try std.testing.expectEqual(.SeenMotionDetected, res.?);
-        try std.testing.expectEqual(16, advanced);
-    }
-    {
-        var advanced: usize = 0;
-        const res = parse("Motion stopped\n", &advanced);
-        try std.testing.expectEqual(.SeenMotionStopped, res.?);
-        try std.testing.expectEqual(15, advanced);
-    }
-    {
-        var advanced: usize = 0;
-        const res = parse("Motion stopped\nMotion detected\n", &advanced);
-        try std.testing.expectEqual(.SeenMotionStopped, res.?);
-        try std.testing.expectEqual(15, advanced);
-    }
-    {
-        var advanced: usize = 0;
-        const res = parse("Motion detected\nMotion stopped\n", &advanced);
-        try std.testing.expectEqual(.SeenMotionDetected, res.?);
-        try std.testing.expectEqual(16, advanced);
-    }
 }
