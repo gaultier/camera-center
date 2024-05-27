@@ -2,7 +2,7 @@ const std = @import("std");
 
 const State = enum { None, SeenMotion, MotionDetected, MotionStopped };
 
-fn parse_tokens(tokens: []u8, state: *State) void {
+fn parse_tokens(tokens: []u8, state: *State, time_motion_detected: *i64, time_motion_stopped: *i64) void {
     var it = std.mem.splitAny(u8, tokens, "\n ");
 
     while (it.next()) |word| {
@@ -10,15 +10,18 @@ fn parse_tokens(tokens: []u8, state: *State) void {
             state.* = State.SeenMotion;
         } else if (state.* == State.SeenMotion and std.mem.eql(u8, word, "detected")) {
             state.* = State.MotionDetected;
+            time_motion_detected.* = std.time.milliTimestamp();
         } else if (state.* == State.SeenMotion and std.mem.eql(u8, word, "stopped")) {
             state.* = State.MotionStopped;
+            time_motion_stopped.* = std.time.milliTimestamp();
         }
     }
 }
 
 fn notify_forever(in: std.fs.File, out: std.fs.File) !void {
     var state = State.None;
-    // var time_start: i64 = undefined;
+    var time_motion_detected: i64 = undefined;
+    var time_motion_stopped: i64 = undefined;
     _ = out;
 
     while (true) {
@@ -37,11 +40,19 @@ fn notify_forever(in: std.fs.File, out: std.fs.File) !void {
             continue;
         }
 
-        parse_tokens(read, &state);
+        parse_tokens(read, &state, &time_motion_detected, &time_motion_stopped);
 
         switch (state) {
-            .MotionDetected => {},
-            .MotionStopped => {},
+            .MotionDetected => {
+                std.debug.assert(time_motion_detected != undefined);
+                std.debug.print("motion detected {}", .{time_motion_detected});
+            },
+            .MotionStopped => {
+                std.debug.assert(time_motion_detected != undefined);
+                std.debug.assert(time_motion_stopped != undefined);
+
+                std.debug.print("motion stopped {} {}", .{ time_motion_detected, time_motion_stopped });
+            },
             else => {},
         }
     }
