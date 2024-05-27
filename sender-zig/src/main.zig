@@ -25,8 +25,7 @@ fn parse(
 }
 
 fn notify_forever(in: std.fs.File, out: std.fs.File) !void {
-    // const time_motion_detected: i64 = 0;
-    // const time_motion_stopped: i64 = 0;
+    var time_motion_detected: i64 = 0;
     _ = out;
 
     var read_buf = [_]u8{0} ** 1024;
@@ -48,13 +47,18 @@ fn notify_forever(in: std.fs.File, out: std.fs.File) !void {
 
         var advanced: usize = 0;
         while (parse(current, &advanced)) |token| {
-            // const now = std.time.milliTimestamp();
-            std.debug.print("{}", .{token});
+            const now = std.time.milliTimestamp();
+
             current = current[advanced..];
 
             switch (token) {
-                .SeenMotionDetected => {},
-                .SeenMotionStopped => {},
+                .SeenMotionDetected => {
+                    time_motion_detected = now;
+                    std.debug.print("{} {}", .{ token, time_motion_detected });
+                },
+                .SeenMotionStopped => {
+                    std.debug.print("{} {} {}", .{ token, time_motion_detected, now });
+                },
             }
         }
 
