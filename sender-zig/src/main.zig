@@ -24,8 +24,8 @@ fn parse_tokens(input: []const u8, state: *State, time_motion_detected: *i64, ti
 
 fn notify_forever(in: std.fs.File, out: std.fs.File) !void {
     var state = State.None;
-    var time_motion_detected: i64 = undefined;
-    var time_motion_stopped: i64 = undefined;
+    var time_motion_detected: i64 = 0;
+    var time_motion_stopped: i64 = 0;
     _ = out;
 
     while (true) {
@@ -48,12 +48,12 @@ fn notify_forever(in: std.fs.File, out: std.fs.File) !void {
 
         switch (state) {
             .MotionDetected => {
-                std.debug.assert(time_motion_detected != undefined);
+                std.debug.assert(time_motion_detected != 0);
                 std.debug.print("motion detected {}", .{time_motion_detected});
             },
             .MotionStopped => {
-                std.debug.assert(time_motion_detected != undefined);
-                std.debug.assert(time_motion_stopped != undefined);
+                std.debug.assert(time_motion_detected != 0);
+                std.debug.assert(time_motion_stopped != 0);
 
                 std.debug.print("motion stopped {} {}", .{ time_motion_detected, time_motion_stopped });
             },
@@ -85,13 +85,13 @@ pub fn main() !void {
 
 test "parse_tokens" {
     {
-        var time_motion_detected: i64 = undefined;
-        var time_motion_stopped: i64 = undefined;
+        var time_motion_detected: i64 = 0;
+        var time_motion_stopped: i64 = 0;
         var state = State.None;
         const input = "Motion";
         parse_tokens(input, &state, &time_motion_detected, &time_motion_stopped);
         try std.testing.expect(state == .SeenMotion);
-        try std.testing.expect(time_motion_detected == undefined);
-        try std.testing.expect(time_motion_stopped == undefined);
+        try std.testing.expect(time_motion_detected == 0);
+        try std.testing.expect(time_motion_stopped == 0);
     }
 }
