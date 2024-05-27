@@ -19,6 +19,8 @@ fn parse(
             advanced.* = idx1 + 1;
             return .SeenMotionStopped;
         }
+
+        advanced.* = input.len; // Nothing interesting seen.
     }
 
     return null;
@@ -53,11 +55,11 @@ fn notify_forever(in: std.fs.File, out: std.fs.File) !void {
             switch (token) {
                 .SeenMotionDetected => {
                     time_motion_detected = now;
-                    std.debug.print("{} {}", .{ token, time_motion_detected });
+                    std.debug.print("{} {}\n", .{ token, time_motion_detected });
                     _ = out.write("motion detected\n") catch {}; // FIXME
                 },
                 .SeenMotionStopped => {
-                    std.debug.print("{} {} {}", .{ token, time_motion_detected, now });
+                    std.debug.print("{} {} {}\n", .{ token, time_motion_detected, now });
                     _ = out.write("motion stopped\n") catch {}; // FIXME
                 },
             }
@@ -101,6 +103,12 @@ test "parse_tokens" {
         const res = parse("Motion stoppe", &advanced);
         try std.testing.expectEqual(null, res);
         try std.testing.expectEqual(0, advanced);
+    }
+    {
+        var advanced: usize = 0;
+        const res = parse("foobar\n", &advanced);
+        try std.testing.expectEqual(null, res);
+        try std.testing.expectEqual(7, advanced);
     }
     {
         var advanced: usize = 0;
