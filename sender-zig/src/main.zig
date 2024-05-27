@@ -3,6 +3,14 @@ const std = @import("std");
 const needle_motion_stopped = "Motion stopped";
 const needle_motion_detected = "Motion detected";
 
+const NetMessageKind = enum(u8) { MotionDetected, MotionStopped };
+
+const NetMessage = packed struct {
+    kind: NetMessageKind,
+    detected: i64,
+    stopped: i64,
+};
+
 fn notify_forever(in: std.fs.File, out: std.fs.File) !void {
     var time_motion_detected: i64 = 0;
 
@@ -20,22 +28,22 @@ fn notify_forever(in: std.fs.File, out: std.fs.File) !void {
         std.debug.print("read={s} {x}\n", .{ line.items, line.items });
         defer line.clearRetainingCapacity();
 
+        var message: NetMessage = undefined;
         if (std.mem.eql(u8, line.items, needle_motion_detected)) {
             time_motion_detected = std.time.milliTimestamp();
             std.debug.print("detected {}\n", .{time_motion_detected});
-            if (out.write("detected\n")) |sent| {
-                std.debug.print("sent {}\n", .{sent});
-            } else |err| {
-                std.debug.print("failed to send {}\n", .{err});
-            }
+
+            message = .{ .kind = .MotionDetected, .detected = time_motion_detected, .stopped = 0 };
         } else if (std.mem.eql(u8, line.items, needle_motion_stopped)) {
             const now = std.time.milliTimestamp();
             std.debug.print("stopped {} {}\n", .{ time_motion_detected, now });
-            if (out.write("stopped\n")) |sent| {
-                std.debug.print("sent {}\n", .{sent});
-            } else |err| {
-                std.debug.print("failed to send {}\n", .{err});
-            }
+            message = .{ .kind = .MotionStopped, .detected = time_motion_detected, .stopped = now };
+        }
+
+        if (out.write(std.mem.sliceAsBytes(&[1]NetMessage{message}))) |sent| {
+            std.debug.print("sent {}\n", .{sent});
+        } else |err| {
+            std.debug.print("failed to send {}\n", .{err});
         }
     } else |err| {
         std.debug.print("stderr read error {}\n", .{err});
