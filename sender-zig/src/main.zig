@@ -26,7 +26,6 @@ fn parse(
 
 fn notify_forever(in: std.fs.File, out: std.fs.File) !void {
     var time_motion_detected: i64 = 0;
-    _ = out;
 
     var read_buf = [_]u8{0} ** 1024;
     var current: []u8 = read_buf[0..0];
@@ -55,9 +54,11 @@ fn notify_forever(in: std.fs.File, out: std.fs.File) !void {
                 .SeenMotionDetected => {
                     time_motion_detected = now;
                     std.debug.print("{} {}", .{ token, time_motion_detected });
+                    _ = out.write("motion detected\n") catch {}; // FIXME
                 },
                 .SeenMotionStopped => {
                     std.debug.print("{} {} {}", .{ token, time_motion_detected, now });
+                    _ = out.write("motion stopped\n") catch {}; // FIXME
                 },
             }
         }
