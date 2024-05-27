@@ -6,6 +6,8 @@ fn parse_tokens(input: []const u8, state: *State, time_motion_detected: *i64, ti
     var it = std.mem.splitAny(u8, input, "\n ");
 
     while (it.next()) |word| {
+        if (word.len == 0) continue;
+
         if (std.mem.eql(u8, word, "Motion")) {
             state.* = State.SeenMotion;
         } else if (state.* == State.SeenMotion and std.mem.eql(u8, word, "detected")) {
