@@ -23,15 +23,19 @@ fn notify_forever(in: std.fs.File, out: std.fs.File) !void {
         if (std.mem.eql(u8, line.items, needle_motion_detected)) {
             time_motion_detected = std.time.milliTimestamp();
             std.debug.print("detected {}\n", .{time_motion_detected});
-            _ = out.write(&[_]u8{0}) catch |err| {
+            if (out.write("detected\n")) |sent| {
+                std.debug.print("sent {}\n", .{sent});
+            } else |err| {
                 std.debug.print("failed to send {}\n", .{err});
-            };
+            }
         } else if (std.mem.eql(u8, line.items, needle_motion_stopped)) {
             const now = std.time.milliTimestamp();
             std.debug.print("stopped {} {}\n", .{ time_motion_detected, now });
-            _ = out.write(&[_]u8{1}) catch |err| {
+            if (out.write("stopped\n")) |sent| {
+                std.debug.print("sent {}\n", .{sent});
+            } else |err| {
                 std.debug.print("failed to send {}\n", .{err});
-            };
+            }
         }
     } else |err| {
         std.debug.print("stderr read error {}\n", .{err});
