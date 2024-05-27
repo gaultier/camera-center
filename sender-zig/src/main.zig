@@ -37,7 +37,7 @@ fn notify_forever(in: std.fs.File, out: std.fs.File) !void {
             continue;
         }
 
-        parse_tokens(read, &state);
+        parse_tokens(&read, &state);
 
         switch (state) {
             .SeenMotionDetected => {},
@@ -65,5 +65,5 @@ pub fn main() !void {
     const socket = try std.posix.socket(std.posix.AF.INET, std.posix.SOCK.STREAM, 0);
     try std.posix.connect(socket, &address.any, address.getOsSockLen());
 
-    try notify_forever(std.io.getStdIn(), socket);
+    try notify_forever(std.io.getStdIn(), .{ .handle = socket });
 }
