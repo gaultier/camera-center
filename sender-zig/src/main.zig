@@ -54,6 +54,10 @@ pub fn main() !void {
     const port: u16 = try std.fmt.parseUnsigned(u16, destination_port, 10);
     const address = try std.net.Address.parseIp4(destination_address, port);
     const socket = try std.posix.socket(std.posix.AF.INET, std.posix.SOCK.STREAM, 0);
+    std.posix.setsockopt(socket, 6, // SOL_TCP
+        std.posix.TCP.NODELAY, std.mem.sliceAsBytes(&[_]u32{1})) catch |err| {
+        std.debug.print("failed to set TCP_NODELAY {}\n", .{err});
+    };
     try std.posix.connect(socket, &address.any, address.getOsSockLen());
 
     try notify_forever(std.io.getStdIn(), .{ .handle = socket });
