@@ -7,8 +7,8 @@ const NetMessageKind = enum(u8) { MotionDetected, MotionStopped };
 
 const NetMessage = packed struct {
     kind: NetMessageKind,
-    detected: i64,
-    stopped: i64,
+    duration: i24,
+    at: i64,
 };
 
 fn notify_forever(in: std.fs.File, out: std.fs.File) !void {
@@ -33,7 +33,7 @@ fn notify_forever(in: std.fs.File, out: std.fs.File) !void {
             time_motion_detected = std.time.milliTimestamp();
             std.debug.print("detected {}\n", .{time_motion_detected});
 
-            message = .{ .kind = .MotionDetected, .detected = time_motion_detected, .stopped = 0 };
+            message = .{ .kind = .MotionDetected, .at = time_motion_detected, .duration = 0 };
             const message_bytes: []u8 = std.mem.asBytes(&message);
             if (out.write(message_bytes)) |sent| {
                 std.debug.print("sent {} {x}\n", .{ sent, message_bytes });
@@ -43,7 +43,7 @@ fn notify_forever(in: std.fs.File, out: std.fs.File) !void {
         } else if (std.mem.eql(u8, line.items, needle_motion_stopped)) {
             const now = std.time.milliTimestamp();
             std.debug.print("stopped {} {}\n", .{ time_motion_detected, now });
-            message = .{ .kind = .MotionStopped, .detected = time_motion_detected, .stopped = now };
+            message = .{ .kind = .MotionStopped, .at = now, .duration = @intCast(now - time_motion_detected) };
             const message_bytes: []u8 = std.mem.asBytes(&message);
             if (out.write(message_bytes)) |sent| {
                 std.debug.print("sent {} {x}\n", .{ sent, message_bytes });
