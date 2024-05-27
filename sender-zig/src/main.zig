@@ -1,37 +1,30 @@
 const std = @import("std");
 
-const State = enum { None, SeenMotionToken, SeenMotionDetected, SeenMotionStopped };
-const ParseResult = struct {
-    advanced: usize,
-    new_state: ?State,
-};
+const State = enum { SeenMotionDetected, SeenMotionStopped };
 
-fn parse_tokens(
+fn parse(
     input: []const u8,
-    old_state: State,
     advanced: *usize,
-) State {
-    var it = std.mem.splitAny(u8, input, "\n ");
+) ?State {
+    const needle_motion_stopped = "Motion stopped\n";
+    const needle_motion_detected = "Motion detected\n";
 
-    while (it.next()) |word| {
-        advanced.* = it.index;
-
-        if (word.len == 0) continue;
-
-        if (std.mem.eql(u8, word, "Motion")) {
-            return State.SeenMotionToken;
-        } else if (old_state.* == State.SeenMotionToken and std.mem.eql(u8, word, "detected")) {
-            return State.SeenMotionDetected;
-        } else if (old_state.* == State.SeenMotionToken and std.mem.eql(u8, word, "stopped")) {
-            return State.SeenMotionStopped;
-        } else {}
+    if (std.mem.indexOf(u8, input, needle_motion_detected)) |idx| {
+        advanced.* = idx + needle_motion_detected.len;
+        return .SeenMotionDetected;
     }
+
+    if (std.mem.indexOf(u8, input, needle_motion_stopped)) |idx| {
+        advanced.* = idx + needle_motion_stopped.len;
+        return .SeenMotionStopped;
+    }
+
+    return null;
 }
 
 fn notify_forever(in: std.fs.File, out: std.fs.File) !void {
-    const state = State.None;
-    const time_motion_detected: i64 = 0;
-    const time_motion_stopped: i64 = 0;
+    // const time_motion_detected: i64 = 0;
+    // const time_motion_stopped: i64 = 0;
     _ = out;
 
     var read_buf = [_]u8{0} ** 1024;
@@ -51,24 +44,19 @@ fn notify_forever(in: std.fs.File, out: std.fs.File) !void {
             continue;
         }
 
-        while (parse_tokens(current)) |token| {
-            _ = token;
+        var advanced: usize = 0;
+        while (parse(current, &advanced)) |token| {
+            // const now = std.time.milliTimestamp();
+            std.debug.print("{}", .{token});
+            current = current[advanced..];
+
+            switch (token) {
+                .SeenMotionDetected => {},
+                .SeenMotionStopped => {},
+            }
         }
+
         // TODO: carry left-over to beginning of read_buf
-
-        switch (state) {
-            .SeenMotionDetected => {
-                std.debug.assert(time_motion_detected != 0);
-                std.debug.print("motion detected {}", .{time_motion_detected});
-            },
-            .SeenMotionStopped => {
-                std.debug.assert(time_motion_detected != 0);
-                std.debug.assert(time_motion_stopped != 0);
-
-                std.debug.print("motion stopped {} {}", .{ time_motion_detected, time_motion_stopped });
-            },
-            else => {},
-        }
     }
 }
 
@@ -95,43 +83,33 @@ pub fn main() !void {
 
 test "parse_tokens" {
     {
-        var time_motion_detected: i64 = 0;
-        var time_motion_stopped: i64 = 0;
-        var state = State.None;
-        const input = "Motion";
-        parse_tokens(input, &state, &time_motion_detected, &time_motion_stopped);
-        try std.testing.expect(state == .SeenMotionToken);
-        try std.testing.expect(time_motion_detected == 0);
-        try std.testing.expect(time_motion_stopped == 0);
+        var advanced: usize = 0;
+        const res = parse("Motion", &advanced);
+        try std.testing.expectEqual(null, res);
+        try std.testing.expectEqual(0, advanced);
     }
     {
-        var time_motion_detected: i64 = 0;
-        var time_motion_stopped: i64 = 0;
-        var state = State.None;
-        const input = "Motion detected\n";
-        parse_tokens(input, &state, &time_motion_detected, &time_motion_stopped);
-        try std.testing.expect(state == .SeenMotionDetected);
-        try std.testing.expect(time_motion_detected != 0);
-        try std.testing.expect(time_motion_stopped == 0);
+        var advanced: usize = 0;
+        const res = parse("Motion stoppe", &advanced);
+        try std.testing.expectEqual(null, res);
+        try std.testing.expectEqual(0, advanced);
     }
     {
-        var time_motion_detected: i64 = 0;
-        var time_motion_stopped: i64 = 0;
-        var state = State.None;
-        const input = "Motion detected\n Motion ";
-        parse_tokens(input, &state, &time_motion_detected, &time_motion_stopped);
-        try std.testing.expect(state == .SeenMotionDetected);
-        try std.testing.expect(time_motion_detected != 0);
-        try std.testing.expect(time_motion_stopped == 0);
+        var advanced: usize = 0;
+        const res = parse("Motion detected\n", &advanced);
+        try std.testing.expectEqual(.SeenMotionDetected, res.?);
+        try std.testing.expectEqual(16, advanced);
     }
     {
-        var time_motion_detected: i64 = 0;
-        var time_motion_stopped: i64 = 0;
-        var state = State.None;
-        const input = "Motion detected\n Motion stopped ";
-        parse_tokens(input, &state, &time_motion_detected, &time_motion_stopped);
-        try std.testing.expect(state == .SeenMotionStopped);
-        try std.testing.expect(time_motion_detected != 0);
-        try std.testing.expect(time_motion_stopped != 0);
+        var advanced: usize = 0;
+        const res = parse("Motion stopped\n", &advanced);
+        try std.testing.expectEqual(.SeenMotionStopped, res.?);
+        try std.testing.expectEqual(15, advanced);
+    }
+    {
+        var advanced: usize = 0;
+        const res = parse("Motion stopped\nMotion detected\n", &advanced);
+        try std.testing.expectEqual(.SeenMotionStopped, res.?);
+        try std.testing.expectEqual(15, advanced);
     }
 }
