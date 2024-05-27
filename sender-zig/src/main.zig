@@ -17,6 +17,7 @@ fn notify_forever(in: std.fs.File, out: std.fs.File) !void {
     const writer = line.writer();
 
     while (reader.streamUntilDelimiter(writer, '\n', null)) {
+        std.debug.print("read={s} {x}\n", .{ line.items, line.items });
         defer line.clearRetainingCapacity();
 
         if (std.mem.eql(u8, line.items, needle_motion_detected)) {
@@ -25,8 +26,7 @@ fn notify_forever(in: std.fs.File, out: std.fs.File) !void {
             _ = out.write(&[_]u8{0}) catch |err| {
                 std.debug.print("failed to send {}\n", .{err});
             };
-        }
-        if (std.mem.eql(u8, line.items, needle_motion_detected)) {
+        } else if (std.mem.eql(u8, line.items, needle_motion_stopped)) {
             const now = std.time.milliTimestamp();
             std.debug.print("stopped {} {}\n", .{ time_motion_detected, now });
             _ = out.write(&[_]u8{1}) catch |err| {
