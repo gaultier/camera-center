@@ -9,14 +9,16 @@ fn parse(
     const needle_motion_stopped = "Motion stopped\n";
     const needle_motion_detected = "Motion detected\n";
 
-    if (std.mem.indexOf(u8, input, needle_motion_detected)) |idx| {
-        advanced.* = idx + needle_motion_detected.len;
-        return .SeenMotionDetected;
-    }
+    if (std.mem.indexOf(u8, input, "\n")) |idx1| {
+        if (std.mem.indexOf(u8, input[0 .. idx1 + 1], needle_motion_detected)) |_| {
+            advanced.* = idx1 + 1;
+            return .SeenMotionDetected;
+        }
 
-    if (std.mem.indexOf(u8, input, needle_motion_stopped)) |idx| {
-        advanced.* = idx + needle_motion_stopped.len;
-        return .SeenMotionStopped;
+        if (std.mem.indexOf(u8, input[0 .. idx1 + 1], needle_motion_stopped)) |_| {
+            advanced.* = idx1 + 1;
+            return .SeenMotionStopped;
+        }
     }
 
     return null;
@@ -111,5 +113,11 @@ test "parse_tokens" {
         const res = parse("Motion stopped\nMotion detected\n", &advanced);
         try std.testing.expectEqual(.SeenMotionStopped, res.?);
         try std.testing.expectEqual(15, advanced);
+    }
+    {
+        var advanced: usize = 0;
+        const res = parse("Motion detected\nMotion stopped\n", &advanced);
+        try std.testing.expectEqual(.SeenMotionDetected, res.?);
+        try std.testing.expectEqual(16, advanced);
     }
 }
