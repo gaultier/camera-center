@@ -7,7 +7,7 @@ const NetMessageKind = enum(u8) { MotionDetected, MotionStopped };
 
 const NetMessage = packed struct {
     kind: NetMessageKind,
-    duration: i24,
+    duration: i56,
     at: i64,
 };
 
