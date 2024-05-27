@@ -34,16 +34,20 @@ fn notify_forever(in: std.fs.File, out: std.fs.File) !void {
             std.debug.print("detected {}\n", .{time_motion_detected});
 
             message = .{ .kind = .MotionDetected, .detected = time_motion_detected, .stopped = 0 };
+            if (out.write(std.mem.sliceAsBytes(&[1]NetMessage{message}))) |sent| {
+                std.debug.print("sent {}\n", .{sent});
+            } else |err| {
+                std.debug.print("failed to send {}\n", .{err});
+            }
         } else if (std.mem.eql(u8, line.items, needle_motion_stopped)) {
             const now = std.time.milliTimestamp();
             std.debug.print("stopped {} {}\n", .{ time_motion_detected, now });
             message = .{ .kind = .MotionStopped, .detected = time_motion_detected, .stopped = now };
-        }
-
-        if (out.write(std.mem.sliceAsBytes(&[1]NetMessage{message}))) |sent| {
-            std.debug.print("sent {}\n", .{sent});
-        } else |err| {
-            std.debug.print("failed to send {}\n", .{err});
+            if (out.write(std.mem.sliceAsBytes(&[1]NetMessage{message}))) |sent| {
+                std.debug.print("sent {}\n", .{sent});
+            } else |err| {
+                std.debug.print("failed to send {}\n", .{err});
+            }
         }
     } else |err| {
         std.debug.print("stderr read error {}\n", .{err});
