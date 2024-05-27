@@ -29,10 +29,10 @@ fn notify_forever(in: std.fs.File, out: std.fs.File) !void {
     _ = out;
 
     var read_buf = [_]u8{0} ** 1024;
+    var current: []u8 = read_buf[0..0];
     while (true) {
-        var current: []u8 = undefined;
-
-        if (std.posix.read(in.handle, &read_buf)) |n| {
+        // There might be carry over data, do not overwrite it.
+        if (std.posix.read(in.handle, read_buf[current.len..])) |n| {
             std.debug.print("len={} read={s}\n", .{ n, read_buf[0..n] });
             if (n == 0) {
                 std.debug.print("0 read, input likely stopped", .{});
@@ -62,7 +62,8 @@ fn notify_forever(in: std.fs.File, out: std.fs.File) !void {
             }
         }
 
-        // TODO: carry left-over to beginning of read_buf
+        // Carry over left-over data.
+        std.mem.copyBackwards(u8, &read_buf, current);
     }
 }
 
@@ -81,7 +82,7 @@ pub fn main() !void {
 
     const port: u16 = try std.fmt.parseUnsigned(u16, destination_port, 10);
     const address = try std.net.Address.parseIp4(destination_address, port);
-    const socket = try std.posix.socket(std.posix.AF.INET, std.posix.SOCK.STREAM, 0);
+    const socket = try std.posix.socket(std.posix.AF.INET, std.posix.SOCK.DGRAM, 0);
     try std.posix.connect(socket, &address.any, address.getOsSockLen());
 
     try notify_forever(std.io.getStdIn(), .{ .handle = socket });
