@@ -36,7 +36,7 @@ fn notify_forever(in: std.fs.File, out: std.fs.File) !void {
             message = .{ .kind = .MotionDetected, .detected = time_motion_detected, .stopped = 0 };
             const message_bytes: []u8 = std.mem.asBytes(&message);
             if (out.write(message_bytes)) |sent| {
-                std.debug.print("sent {}\n", .{sent});
+                std.debug.print("sent {} {x}\n", .{ sent, message_bytes });
             } else |err| {
                 std.debug.print("failed to send {}\n", .{err});
             }
@@ -46,7 +46,7 @@ fn notify_forever(in: std.fs.File, out: std.fs.File) !void {
             message = .{ .kind = .MotionStopped, .detected = time_motion_detected, .stopped = now };
             const message_bytes: []u8 = std.mem.asBytes(&message);
             if (out.write(message_bytes)) |sent| {
-                std.debug.print("sent {}\n", .{sent});
+                std.debug.print("sent {} {x}\n", .{ sent, message_bytes });
             } else |err| {
                 std.debug.print("failed to send {}\n", .{err});
             }
