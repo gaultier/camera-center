@@ -2,8 +2,8 @@ const std = @import("std");
 
 const State = enum { None, SeenMotion, MotionDetected, MotionStopped };
 
-fn parse_tokens(tokens: []u8, state: *State, time_motion_detected: *i64, time_motion_stopped: *i64) void {
-    var it = std.mem.splitAny(u8, tokens, "\n ");
+fn parse_tokens(input: []const u8, state: *State, time_motion_detected: *i64, time_motion_stopped: *i64) void {
+    var it = std.mem.splitAny(u8, input, "\n ");
 
     while (it.next()) |word| {
         if (std.mem.eql(u8, word, "Motion")) {
@@ -14,6 +14,8 @@ fn parse_tokens(tokens: []u8, state: *State, time_motion_detected: *i64, time_mo
         } else if (state.* == State.SeenMotion and std.mem.eql(u8, word, "stopped")) {
             state.* = State.MotionStopped;
             time_motion_stopped.* = std.time.milliTimestamp();
+        } else {
+            state.* = State.None;
         }
     }
 }
@@ -28,7 +30,7 @@ fn notify_forever(in: std.fs.File, out: std.fs.File) !void {
         var read: []u8 = undefined;
         var read_buf = [_]u8{0} ** 1024;
         if (std.posix.read(in.handle, &read_buf)) |n| {
-            std.debug.print("stderr len={} read={s}\n", .{ n, read_buf[0..n] });
+            std.debug.print("len={} read={s}\n", .{ n, read_buf[0..n] });
             if (n == 0) {
                 std.debug.print("0 read, input likely stopped", .{});
                 return;
@@ -77,4 +79,17 @@ pub fn main() !void {
     try std.posix.connect(socket, &address.any, address.getOsSockLen());
 
     try notify_forever(std.io.getStdIn(), .{ .handle = socket });
+}
+
+test "parse_tokens" {
+    {
+        var time_motion_detected: i64 = undefined;
+        var time_motion_stopped: i64 = undefined;
+        var state = State.None;
+        const input = "Motion";
+        parse_tokens(input, &state, &time_motion_detected, &time_motion_stopped);
+        try std.testing.expect(state == .SeenMotion);
+        try std.testing.expect(time_motion_detected == undefined);
+        try std.testing.expect(time_motion_stopped == undefined);
+    }
 }
