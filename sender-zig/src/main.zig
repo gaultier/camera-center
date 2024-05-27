@@ -1,43 +1,43 @@
 const std = @import("std");
 
 const State = enum { None, SeenMotionToken, SeenMotionDetected, SeenMotionStopped };
+const ParseResult = struct {
+    advanced: usize,
+    new_state: ?State,
+};
 
-fn parse_tokens(input: []const u8, state: *State, time_motion_detected: *i64, time_motion_stopped: *i64) void {
+fn parse_tokens(
+    input: []const u8,
+    old_state: State,
+    advanced: *usize,
+) State {
     var it = std.mem.splitAny(u8, input, "\n ");
 
     while (it.next()) |word| {
+        advanced.* = it.index;
+
         if (word.len == 0) continue;
 
         if (std.mem.eql(u8, word, "Motion")) {
-            state.* = State.SeenMotionToken;
-        } else if (state.* == State.SeenMotionToken and std.mem.eql(u8, word, "detected")) {
-            state.* = State.SeenMotionDetected;
-            time_motion_detected.* = std.time.milliTimestamp();
-        } else if (state.* == State.SeenMotionToken and std.mem.eql(u8, word, "stopped")) {
-            state.* = State.SeenMotionStopped;
-            time_motion_stopped.* = std.time.milliTimestamp();
-        } else {
-            state.* = State.None;
-        }
+            return State.SeenMotionToken;
+        } else if (old_state.* == State.SeenMotionToken and std.mem.eql(u8, word, "detected")) {
+            return State.SeenMotionDetected;
+        } else if (old_state.* == State.SeenMotionToken and std.mem.eql(u8, word, "stopped")) {
+            return State.SeenMotionStopped;
+        } else {}
     }
 }
 
 fn notify_forever(in: std.fs.File, out: std.fs.File) !void {
-    var state = State.None;
-    var time_motion_detected: i64 = 0;
-    var time_motion_stopped: i64 = 0;
+    const state = State.None;
+    const time_motion_detected: i64 = 0;
+    const time_motion_stopped: i64 = 0;
     _ = out;
 
-    var mem = [_]u8{0} ** 8092;
-    var arena =
-        std.heap.FixedBufferAllocator.init(&mem);
-
-    const allocator = arena.allocator();
-    var ring = try std.RingBuffer.init(allocator, 4096);
-
+    var read_buf = [_]u8{0} ** 1024;
     while (true) {
-        var read: []u8 = undefined;
-        var read_buf = [_]u8{0} ** 1024;
+        var current: []u8 = undefined;
+
         if (std.posix.read(in.handle, &read_buf)) |n| {
             std.debug.print("len={} read={s}\n", .{ n, read_buf[0..n] });
             if (n == 0) {
@@ -45,14 +45,16 @@ fn notify_forever(in: std.fs.File, out: std.fs.File) !void {
                 return;
             }
 
-            read = read_buf[0..n];
-            try ring.writeSlice(read);
+            current = read_buf[0..n];
         } else |err| {
             std.debug.print("stderr read error {}\n", .{err});
             continue;
         }
 
-        parse_tokens(read, &state, &time_motion_detected, &time_motion_stopped);
+        while (parse_tokens(current)) |token| {
+            _ = token;
+        }
+        // TODO: carry left-over to beginning of read_buf
 
         switch (state) {
             .SeenMotionDetected => {
