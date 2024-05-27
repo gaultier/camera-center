@@ -86,7 +86,7 @@ pub fn main() !void {
 
     const port: u16 = try std.fmt.parseUnsigned(u16, destination_port, 10);
     const address = try std.net.Address.parseIp4(destination_address, port);
-    const socket = try std.posix.socket(std.posix.AF.INET, std.posix.SOCK.DGRAM, 0);
+    const socket = try std.posix.socket(std.posix.AF.INET, std.posix.SOCK.STREAM, 0);
     try std.posix.connect(socket, &address.any, address.getOsSockLen());
 
     try notify_forever(std.io.getStdIn(), .{ .handle = socket });
