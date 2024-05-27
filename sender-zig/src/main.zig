@@ -1,15 +1,15 @@
 const std = @import("std");
 
-const State = enum { None, SeenMotion, SeenMotionDetected, SeeMotionStopped };
+const State = enum { None, SeenMotion, MotionDetected, MotionStopped };
 
-fn parse_tokens(tokens: [][]u8, state: *State) !void {
+fn parse_tokens(tokens: []u8, state: *State) void {
     var it = std.mem.splitAny(u8, tokens, "\n ");
 
     while (it.next()) |word| {
         if (std.mem.eql(u8, word, "Motion")) {
             state.* = State.SeenMotion;
         } else if (state.* == State.SeenMotion and std.mem.eql(u8, word, "detected")) {
-            state.* = State.SeenMotionDetected;
+            state.* = State.MotionDetected;
         } else if (state.* == State.SeenMotion and std.mem.eql(u8, word, "stopped")) {
             state.* = State.MotionStopped;
         }
@@ -37,11 +37,11 @@ fn notify_forever(in: std.fs.File, out: std.fs.File) !void {
             continue;
         }
 
-        parse_tokens(&read, &state);
+        parse_tokens(read, &state);
 
         switch (state) {
-            .SeenMotionDetected => {},
-            .SeeMotionStopped => {},
+            .MotionDetected => {},
+            .MotionStopped => {},
             else => {},
         }
     }
