@@ -28,6 +28,13 @@ fn notify_forever(in: std.fs.File, out: std.fs.File) !void {
     var time_motion_stopped: i64 = 0;
     _ = out;
 
+    var mem = [_]u8{0} ** 8092;
+    var arena =
+        std.heap.FixedBufferAllocator.init(&mem);
+
+    const allocator = arena.allocator();
+    var ring = try std.RingBuffer.init(allocator, 4096);
+
     while (true) {
         var read: []u8 = undefined;
         var read_buf = [_]u8{0} ** 1024;
@@ -39,6 +46,7 @@ fn notify_forever(in: std.fs.File, out: std.fs.File) !void {
             }
 
             read = read_buf[0..n];
+            try ring.writeSlice(read);
         } else |err| {
             std.debug.print("stderr read error {}\n", .{err});
             continue;
