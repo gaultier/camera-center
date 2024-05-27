@@ -34,13 +34,14 @@ fn notify_forever(in: std.fs.File, out: std.fs.File) !void {
     while (true) {
         // There might be carry over data, do not overwrite it.
         if (std.posix.read(in.handle, read_buf[current.len..])) |n| {
-            std.debug.print("len={} read={s}\n", .{ n, read_buf[0..n] });
+            const data = read_buf[current.len .. current.len + n];
+            std.debug.print("len={} read={s} {x}\n", .{ n, data, data });
             if (n == 0) {
                 std.debug.print("0 read, input likely stopped", .{});
                 return;
             }
 
-            current = read_buf[0..n];
+            current = data;
         } else |err| {
             std.debug.print("stderr read error {}\n", .{err});
             continue;
