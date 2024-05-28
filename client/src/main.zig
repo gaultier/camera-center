@@ -17,34 +17,34 @@ fn notify_forever(in: std.fs.File, out: std.fs.File) !void {
     const writer = line.writer();
 
     while (reader.streamUntilDelimiter(writer, '\n', null)) {
-        std.debug.print("read={s} {x}\n", .{ line.items, line.items });
+        std.log.debug("read={s} {x}", .{ line.items, line.items });
         defer line.clearRetainingCapacity();
 
         var message: root.NetMessage = undefined;
         if (std.mem.eql(u8, line.items, needle_motion_detected)) {
             time_motion_detected = std.time.milliTimestamp();
-            std.debug.print("detected {}\n", .{time_motion_detected});
+            std.log.debug("detected {}", .{time_motion_detected});
 
             message = .{ .kind = .MotionDetected, .timestamp_ms = time_motion_detected, .duration = 0 };
             const message_bytes: []u8 = std.mem.asBytes(&message);
             if (out.write(message_bytes)) |sent| {
-                std.debug.print("sent {} {x}\n", .{ sent, message_bytes });
+                std.log.debug("sent {} {x}", .{ sent, message_bytes });
             } else |err| {
-                std.debug.print("failed to send {}\n", .{err});
+                std.log.err("failed to send {}", .{err});
             }
         } else if (std.mem.eql(u8, line.items, needle_motion_stopped)) {
             const now = std.time.milliTimestamp();
-            std.debug.print("stopped {} {}\n", .{ time_motion_detected, now });
+            std.log.debug("stopped {} {}", .{ time_motion_detected, now });
             message = .{ .kind = .MotionStopped, .timestamp_ms = now, .duration = @intCast(now - time_motion_detected) };
             const message_bytes: []u8 = std.mem.asBytes(&message);
             if (out.write(message_bytes)) |sent| {
-                std.debug.print("sent {} {x}\n", .{ sent, message_bytes });
+                std.log.debug("sent {} {x}", .{ sent, message_bytes });
             } else |err| {
-                std.debug.print("failed to send {}\n", .{err});
+                std.log.err("failed to send {}", .{err});
             }
         }
     } else |err| {
-        std.debug.print("stderr read error {}\n", .{err});
+        std.log.err("stderr read error {}", .{err});
     }
 }
 
@@ -57,13 +57,13 @@ pub fn main() !void {
     if (args.next()) |arg| {
         destination_address = arg;
     } else {
-        std.debug.print("Missing address", .{});
+        std.log.err("Missing address", .{});
         std.posix.exit(1);
     }
     if (args.next()) |arg| {
         destination_port = arg;
     } else {
-        std.debug.print("Missing port", .{});
+        std.log.err("Missing port", .{});
         std.posix.exit(1);
     }
 
@@ -72,7 +72,7 @@ pub fn main() !void {
     const socket = try std.posix.socket(std.posix.AF.INET, std.posix.SOCK.STREAM, 0);
     std.posix.setsockopt(socket, 6, // SOL_TCP
         std.posix.TCP.NODELAY, std.mem.sliceAsBytes(&[_]u32{1})) catch |err| {
-        std.debug.print("failed to set TCP_NODELAY {}\n", .{err});
+        std.log.err("failed to set TCP_NODELAY {}", .{err});
     };
     try std.posix.connect(socket, &address.any, address.getOsSockLen());
 
