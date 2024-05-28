@@ -14,15 +14,15 @@ fn handle_tcp_connection(connection: *std.net.Server.Connection) !void {
     while (true) {
         var read_buffer = [_]u8{0} ** 4096;
         const read = try connection.stream.read(&read_buffer);
-        std.debug.print("tcp read={} {x}\n", .{ read, read_buffer[0..read] });
+        std.log.debug("tcp read={} {x}", .{ read, read_buffer[0..read] });
         if (read == 0) {
-            std.debug.print("tcp read={} client likely closed the connection\n", .{read});
+            std.log.debug("tcp read={} client likely closed the connection", .{read});
             std.process.exit(0);
         }
 
         // TODO: length checks etc. Ringbuffer?
         const message: NetMessage = std.mem.bytesToValue(NetMessage, read_buffer[0..read]);
-        std.debug.print("message={}\n", .{message});
+        std.log.debug("message={}", .{message});
     }
 }
 
@@ -53,24 +53,24 @@ fn listen_udp() !void {
 
     while (true) {
         _ = std.posix.poll(&poll_fds, -1) catch |err| {
-            std.debug.print("poll error {}\n", .{err});
+            std.log.err("poll error {}", .{err});
             continue;
         };
 
         if ((poll_fds[0].revents & std.posix.POLL.IN) != 0) {
             var read_buffer = [_]u8{0} ** 4096;
             if (std.posix.read(poll_fds[0].fd, &read_buffer)) |n_read| {
-                std.debug.print("udp read={}\n", .{n_read});
+                std.log.debug("udp read={}", .{n_read});
 
                 file.writeAll(read_buffer[0..n_read]) catch |err| {
-                    std.debug.print("failed to write all to file {}\n", .{err});
+                    std.log.err("failed to write all to file {}", .{err});
                 };
             } else |err| {
-                std.debug.print("failed to read udp {}\n", .{err});
+                std.log.err("failed to read udp {}", .{err});
             }
         }
         if ((poll_fds[1].revents & std.posix.POLL.IN) != 0) {
-            std.debug.print("timer triggered\n", .{});
+            std.log.debug("timer triggered", .{});
             var read_buffer = [_]u8{0} ** 8;
             _ = std.posix.read(poll_fds[1].fd, &read_buffer) catch {};
         }
