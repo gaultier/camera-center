@@ -1,10 +1,17 @@
 const std = @import("std");
-const root = @import("./root.zig");
+
+pub const NetMessageKind = enum(u8) { MotionDetected, MotionStopped };
+
+pub const NetMessage = packed struct {
+    kind: NetMessageKind,
+    duration: i56,
+    timestamp_ms: i64,
+};
 
 const needle_motion_stopped = "Motion stopped";
 const needle_motion_detected = "Motion detected";
 
-fn notify_forever(in: std.fs.File, out: std.fs.File) !void {
+fn notify_forever(in: std.fs.File, out: std.posix.socket_t, address: *const std.net.Address) !void {
     var time_motion_detected: i64 = 0;
 
     var buffered_reader = std.io.bufferedReader(in.reader());
@@ -20,31 +27,43 @@ fn notify_forever(in: std.fs.File, out: std.fs.File) !void {
         std.log.debug("read={s} {x}", .{ line.items, line.items });
         defer line.clearRetainingCapacity();
 
-        var message: root.NetMessage = undefined;
+        var message: NetMessage = undefined;
         if (std.mem.eql(u8, line.items, needle_motion_detected)) {
             time_motion_detected = std.time.milliTimestamp();
+            message = .{ .kind = .MotionDetected, .timestamp_ms = time_motion_detected, .duration = 0 };
             std.log.debug("detected {}", .{time_motion_detected});
 
-            message = .{ .kind = .MotionDetected, .timestamp_ms = time_motion_detected, .duration = 0 };
-            const message_bytes: []u8 = std.mem.asBytes(&message);
-            if (out.write(message_bytes)) |sent| {
-                std.log.debug("sent {} {x}", .{ sent, message_bytes });
-            } else |err| {
-                std.log.err("failed to send {}", .{err});
-            }
+            send_message(out, address, &message);
         } else if (std.mem.eql(u8, line.items, needle_motion_stopped)) {
             const now = std.time.milliTimestamp();
             message = .{ .kind = .MotionStopped, .timestamp_ms = now, .duration = @intCast(now - time_motion_detected) };
             std.log.debug("stopped {}", .{message});
-            const message_bytes: []u8 = std.mem.asBytes(&message);
-            if (out.write(message_bytes)) |sent| {
-                std.log.debug("sent {} {x}", .{ sent, message_bytes });
-            } else |err| {
-                std.log.err("failed to send {}", .{err});
-            }
+
+            send_message(out, address, &message);
         }
     } else |err| {
         std.log.err("stderr read error {}", .{err});
+    }
+}
+
+fn tcp_connect_retry_forever(socket: std.posix.socket_t, address: *const std.net.Address) void {
+    while (true) {
+        std.posix.connect(socket, &address.any, address.getOsSockLen()) catch |err| {
+            std.log.err("failed to connect over tcp, retrying {}", .{err});
+            std.time.sleep(2_000_000_000);
+            continue;
+        };
+        break;
+    }
+}
+
+fn send_message(socket: std.posix.socket_t, address: *const std.net.Address, message: *const NetMessage) void {
+    const message_bytes = std.mem.asBytes(message);
+    if (std.posix.write(socket, message_bytes)) |sent| {
+        std.log.debug("sent {} {}", .{ sent, message });
+    } else |err| switch (err) {
+        error.BrokenPipe => tcp_connect_retry_forever(socket, address),
+        else => std.log.err("failed to send {}", .{err}),
     }
 }
 
@@ -75,14 +94,7 @@ pub fn main() !void {
         std.log.err("failed to set TCP_NODELAY {}", .{err});
     };
 
-    while (true) {
-        std.posix.connect(socket, &address.any, address.getOsSockLen()) catch |err| {
-            std.log.err("failed to connect over tcp, retrying {}", .{err});
-            std.time.sleep(2_000_000_000);
-            continue;
-        };
-        break;
-    }
+    tcp_connect_retry_forever(socket, &address);
 
-    try notify_forever(std.io.getStdIn(), .{ .handle = socket });
+    try notify_forever(std.io.getStdIn(), socket, &address);
 }
