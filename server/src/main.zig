@@ -40,6 +40,19 @@ fn handle_tcp_connection(connection: *std.net.Server.Connection) !void {
     }
 }
 
+fn handle_udp_packet(in: std.posix.socket_t, out: std.fs.File) void {
+    var read_buffer = [_]u8{0} ** 4096;
+    if (std.posix.read(in, &read_buffer)) |n_read| {
+        std.log.debug("udp read={}", .{n_read});
+
+        out.writeAll(read_buffer[0..n_read]) catch |err| {
+            std.log.err("failed to write all to file {}", .{err});
+        };
+    } else |err| {
+        std.log.err("failed to read udp {}", .{err});
+    }
+}
+
 // TODO: For multiple cameras we need to identify which stream it is.
 // Perhaps from the mpegts metadata?
 fn listen_udp() !void {
@@ -73,16 +86,7 @@ fn listen_udp() !void {
         };
 
         if ((poll_fds[0].revents & std.posix.POLL.IN) != 0) {
-            var read_buffer = [_]u8{0} ** 4096;
-            if (std.posix.read(poll_fds[0].fd, &read_buffer)) |n_read| {
-                std.log.debug("udp read={}", .{n_read});
-
-                video_file.writeAll(read_buffer[0..n_read]) catch |err| {
-                    std.log.err("failed to write all to file {}", .{err});
-                };
-            } else |err| {
-                std.log.err("failed to read udp {}", .{err});
-            }
+            handle_udp_packet(poll_fds[0].fd, video_file);
         }
         if ((poll_fds[1].revents & std.posix.POLL.IN) != 0) {
             std.log.debug("timer triggered", .{});
