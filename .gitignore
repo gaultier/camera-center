@@ -1,6 +1,5 @@
-/target
-*.ts
-*.srt
-zig-*
-*.ts
 *.zon
+zig-cache
+zig-out
+*.txt
+*.ts
