@@ -1,5 +1,11 @@
 const std = @import("std");
-const root = @import("./root");
+pub const NetMessageKind = enum(u8) { MotionDetected, MotionStopped };
+
+pub const NetMessage = packed struct {
+    kind: NetMessageKind,
+    duration: i56,
+    timestamp_ms: i64,
+};
 
 fn handle_connection(connection: *std.net.Server.Connection) !void {
     while (true) {
@@ -10,6 +16,10 @@ fn handle_connection(connection: *std.net.Server.Connection) !void {
             std.debug.print("tcp read={} client likely closed the connection\n", .{read});
             std.process.exit(0);
         }
+
+        // TODO: length checks etc. Ringbuffer?
+        const message: NetMessage = std.mem.bytesToValue(NetMessage, read_buffer[0..read]);
+        std.debug.print("message={}\n", .{message});
     }
 }
 
