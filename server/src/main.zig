@@ -9,7 +9,7 @@ pub const NetMessageKind = enum(u8) { MotionDetected, MotionStopped };
 
 pub const NetMessage = packed struct {
     kind: NetMessageKind,
-    duration: i56,
+    duration_ms: i56,
     timestamp_ms: i64,
 };
 
@@ -32,13 +32,11 @@ fn handle_tcp_connection(connection: *std.net.Server.Connection) !void {
         // TODO: length checks etc. Ringbuffer?
         const message: NetMessage = std.mem.bytesToValue(NetMessage, read);
 
-        var date: [256]u8 = undefined;
-        const date_c: [*c]u8 = @as([*c]u8, @ptrCast(@alignCast(&date)));
-        std.debug.assert(c.strftime(date_c, 256, "%Y-%m-%d %H:%M:%S", message.timestamp_ms) > 0);
-        std.log.debug("message={} {s}", .{ message, date_c });
+        var date: [256:0]u8 = undefined;
+        const date_len = fill_string_from_timestamp_ms(message.timestamp_ms, &date);
 
         const writer = event_file.writer();
-        try std.fmt.format(writer, "{s} {}\n", .{ date, message.duration });
+        try std.fmt.format(writer, "{s} {}\n", .{ date[0..date_len], message.duration_ms });
     }
 }
 
