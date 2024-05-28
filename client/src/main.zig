@@ -67,7 +67,8 @@ fn send_message(socket: *std.posix.socket_t, address: *const std.net.Address, me
         error.BrokenPipe => {
             std.posix.close(socket.*);
             socket.* = try create_tcp_socket(address);
-            tcp_connect_retry_forever(socket, address);
+            // Retry sending.
+            try send_message(socket, address, message);
         },
         else => std.log.err("failed to send {}", .{err}),
     }
