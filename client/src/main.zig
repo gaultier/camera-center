@@ -74,7 +74,13 @@ pub fn main() !void {
         std.posix.TCP.NODELAY, std.mem.sliceAsBytes(&[_]u32{1})) catch |err| {
         std.log.err("failed to set TCP_NODELAY {}", .{err});
     };
-    try std.posix.connect(socket, &address.any, address.getOsSockLen());
+
+    while (true) {
+        std.posix.connect(socket, &address.any, address.getOsSockLen()) catch |err| {
+            std.log.err("failed to connect over tcp, retrying {}", .{err});
+            std.time.sleep(2_000_000_000);
+        };
+    }
 
     try notify_forever(std.io.getStdIn(), .{ .handle = socket });
 }
