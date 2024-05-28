@@ -1,4 +1,5 @@
 const std = @import("std");
+
 pub const NetMessageKind = enum(u8) { MotionDetected, MotionStopped };
 
 pub const NetMessage = packed struct {
@@ -6,6 +7,8 @@ pub const NetMessage = packed struct {
     duration: i56,
     timestamp_ms: i64,
 };
+
+const FILE_TIMER_DURATION_SECONDS = 60;
 
 fn handle_tcp_connection(connection: *std.net.Server.Connection) !void {
     while (true) {
@@ -23,17 +26,47 @@ fn handle_tcp_connection(connection: *std.net.Server.Connection) !void {
     }
 }
 
+// TODO: For multiple cameras we need to identify which stream it is.
+// Perhaps from the mpegts metadata?
 fn listen_udp() !void {
     const udp_socket = try std.posix.socket(std.posix.AF.INET, std.posix.SOCK.DGRAM, 0);
     const address = std.net.Address.parseIp4("0.0.0.0", 12345) catch unreachable;
     try std.posix.bind(udp_socket, &address.any, address.getOsSockLen());
 
+    const timer = try std.posix.timerfd_create(std.posix.CLOCK.MONOTONIC, .{});
+    try std.posix.timerfd_settime(timer, .{}, &.{
+        .it_value = .{ .tv_sec = FILE_TIMER_DURATION_SECONDS, .tv_nsec = 0 },
+        .it_interval = .{ .tv_sec = FILE_TIMER_DURATION_SECONDS, .tv_nsec = 0 },
+    }, null);
+
+    var poll_fds = [2]std.posix.pollfd{ .{
+        .fd = udp_socket,
+        .events = std.posix.POLL.IN,
+        .revents = 0,
+    }, .{
+        .fd = timer,
+        .events = std.posix.POLL.IN,
+        .revents = 0,
+    } };
+
     while (true) {
-        var read_buffer = [_]u8{0} ** 4096;
-        if (std.posix.read(udp_socket, &read_buffer)) |n| {
-            std.debug.print("udp read={}\n", .{n});
-        } else |err| {
-            std.debug.print("failed to read udp {}\n", .{err});
+        _ = std.posix.poll(&poll_fds, -1) catch |err| {
+            std.debug.print("poll error {}\n", .{err});
+            continue;
+        };
+
+        if ((poll_fds[0].revents & std.posix.POLL.IN) != 0) {
+            var read_buffer = [_]u8{0} ** 4096;
+            if (std.posix.read(poll_fds[0].fd, &read_buffer)) |n| {
+                std.debug.print("udp read={}\n", .{n});
+            } else |err| {
+                std.debug.print("failed to read udp {}\n", .{err});
+            }
+        }
+        if ((poll_fds[1].revents & std.posix.POLL.IN) != 0) {
+            std.debug.print("timer triggered\n", .{});
+            var read_buffer = [_]u8{0} ** 8;
+            _ = std.posix.read(poll_fds[1].fd, &read_buffer) catch {};
         }
     }
 }
