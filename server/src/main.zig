@@ -3,6 +3,10 @@ const c = @cImport({
     @cInclude("time.h"); // For strftime
 });
 
+pub const std_options = .{
+    .log_level = .info,
+};
+
 pub const NetMessageKind = enum(u8) { MotionDetected, MotionStopped };
 
 pub const NetMessage = packed struct {
@@ -29,6 +33,7 @@ fn handle_tcp_connection(connection: *std.net.Server.Connection) !void {
         const read = read_buffer[0..read_n];
         // TODO: length checks etc. Ringbuffer?
         const message: NetMessage = std.mem.bytesToValue(NetMessage, read);
+        std.log.info("event {}", .{message});
 
         var date: [256:0]u8 = undefined;
         const date_len = fill_string_from_timestamp_ms(message.timestamp_ms, &date);
