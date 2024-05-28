@@ -1,5 +1,5 @@
 const std = @import("std");
-const root = @import("root");
+const root = @import("./root.zig");
 
 const needle_motion_stopped = "Motion stopped";
 const needle_motion_detected = "Motion detected";
