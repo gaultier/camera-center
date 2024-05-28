@@ -11,18 +11,23 @@ pub const NetMessage = packed struct {
 const FILE_TIMER_DURATION_SECONDS = 60;
 
 fn handle_tcp_connection(connection: *std.net.Server.Connection) !void {
+    var event_file = try std.fs.cwd().createFile("events.txt", .{});
+    try event_file.seekFromEnd(0);
+
     while (true) {
         var read_buffer = [_]u8{0} ** 4096;
-        const read = try connection.stream.read(&read_buffer);
-        std.log.debug("tcp read={} {x}", .{ read, read_buffer[0..read] });
-        if (read == 0) {
-            std.log.debug("tcp read={} client likely closed the connection", .{read});
+        const read_n = try connection.stream.read(&read_buffer);
+        std.log.debug("tcp read={} {x}", .{ read_n, read_buffer[0..read_n] });
+        if (read_n == 0) {
+            std.log.debug("tcp read={} client likely closed the connection", .{read_n});
             std.process.exit(0);
         }
 
+        const read = read_buffer[0..read_n];
         // TODO: length checks etc. Ringbuffer?
-        const message: NetMessage = std.mem.bytesToValue(NetMessage, read_buffer[0..read]);
+        const message: NetMessage = std.mem.bytesToValue(NetMessage, read);
         std.log.debug("message={}", .{message});
+        try std.fmt.format(event_file.writer(), "{}\n", .{message});
     }
 }
 
@@ -33,7 +38,8 @@ fn listen_udp() !void {
     const address = std.net.Address.parseIp4("0.0.0.0", 12345) catch unreachable;
     try std.posix.bind(udp_socket, &address.any, address.getOsSockLen());
 
-    var file = try std.fs.cwd().createFile("out.ts", .{ .read = true });
+    var video_file = try std.fs.cwd().createFile("out.ts", .{});
+    try video_file.seekFromEnd(0);
 
     const timer = try std.posix.timerfd_create(std.posix.CLOCK.MONOTONIC, .{});
     try std.posix.timerfd_settime(timer, .{}, &.{
@@ -62,7 +68,7 @@ fn listen_udp() !void {
             if (std.posix.read(poll_fds[0].fd, &read_buffer)) |n_read| {
                 std.log.debug("udp read={}", .{n_read});
 
-                file.writeAll(read_buffer[0..n_read]) catch |err| {
+                video_file.writeAll(read_buffer[0..n_read]) catch |err| {
                     std.log.err("failed to write all to file {}", .{err});
                 };
             } else |err| {
@@ -80,6 +86,7 @@ fn listen_udp() !void {
 fn listen_tcp() !void {
     const address = std.net.Address.parseIp4("0.0.0.0", 12345) catch unreachable;
     var server = try std.net.Address.listen(address, .{ .reuse_address = true });
+
     while (true) {
         var connection = try server.accept();
         const pid = try std.posix.fork();
