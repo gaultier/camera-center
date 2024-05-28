@@ -53,6 +53,19 @@ fn handle_udp_packet(in: std.posix.socket_t, out: std.fs.File) void {
     }
 }
 
+fn create_video_file() !std.fs.File {
+    const now = std.time.milliTimestamp();
+    var date: [256:0]u8 = undefined;
+    _ = fill_string_from_timestamp_ms(now, &date);
+    const date_c: [*c]u8 = @as([*c]u8, @ptrCast(@alignCast(&date)));
+
+    const file = try std.fs.cwd().createFileZ(date_c, .{});
+    try file.seekFromEnd(0);
+
+    std.log.info("new video file {s}", .{date});
+    return file;
+}
+
 // TODO: For multiple cameras we need to identify which stream it is.
 // Perhaps from the mpegts metadata?
 fn listen_udp() !void {
@@ -60,8 +73,7 @@ fn listen_udp() !void {
     const address = std.net.Address.parseIp4("0.0.0.0", 12345) catch unreachable;
     try std.posix.bind(udp_socket, &address.any, address.getOsSockLen());
 
-    var video_file = try std.fs.cwd().createFile("out.ts", .{});
-    try video_file.seekFromEnd(0);
+    var video_file = try create_video_file();
 
     const timer = try std.posix.timerfd_create(std.posix.CLOCK.MONOTONIC, .{});
     try std.posix.timerfd_settime(timer, .{}, &.{
@@ -91,7 +103,9 @@ fn listen_udp() !void {
         if ((poll_fds[1].revents & std.posix.POLL.IN) != 0) {
             std.log.debug("timer triggered", .{});
             var read_buffer = [_]u8{0} ** 8;
-            _ = std.posix.read(poll_fds[1].fd, &read_buffer) catch {};
+            std.debug.assert(std.posix.read(poll_fds[1].fd, &read_buffer) catch 0 == 8);
+
+            video_file = try create_video_file();
         }
     }
 }
