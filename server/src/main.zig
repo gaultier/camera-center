@@ -7,7 +7,7 @@ pub const NetMessage = packed struct {
     timestamp_ms: i64,
 };
 
-fn handle_connection(connection: *std.net.Server.Connection) !void {
+fn handle_tcp_connection(connection: *std.net.Server.Connection) !void {
     while (true) {
         var read_buffer = [_]u8{0} ** 4096;
         const read = try connection.stream.read(&read_buffer);
@@ -38,9 +38,7 @@ fn listen_udp() !void {
     }
 }
 
-pub fn main() !void {
-    _ = try std.Thread.spawn(.{}, listen_udp, .{});
-
+fn listen_tcp() !void {
     const address = std.net.Address.parseIp4("0.0.0.0", 12345) catch unreachable;
     var server = try std.net.Address.listen(address, .{ .reuse_address = true });
     while (true) {
@@ -50,6 +48,12 @@ pub fn main() !void {
             continue;
         }
         // Child
-        try handle_connection(&connection);
+        try handle_tcp_connection(&connection);
     }
+}
+
+pub fn main() !void {
+    _ = try std.Thread.spawn(.{}, listen_udp, .{});
+
+    try listen_tcp();
 }
