@@ -1,10 +1,5 @@
 const std = @import("std");
-
-const MessageKind = enum(u2) {
-    VideoStream,
-    MotionStarted,
-    MotionStopped,
-};
+const root = @import("./root");
 
 pub fn main() !void {
     const socket = std.posix.socket(std.posix.AF.INET, std.posix.SOCK.STREAM, 0) catch unreachable;

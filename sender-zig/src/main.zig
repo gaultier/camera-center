@@ -1,15 +1,8 @@
 const std = @import("std");
+const root = @import("root");
 
 const needle_motion_stopped = "Motion stopped";
 const needle_motion_detected = "Motion detected";
-
-const NetMessageKind = enum(u8) { MotionDetected, MotionStopped };
-
-const NetMessage = packed struct {
-    kind: NetMessageKind,
-    duration: i56,
-    timestamp_ms: i64,
-};
 
 fn notify_forever(in: std.fs.File, out: std.fs.File) !void {
     var time_motion_detected: i64 = 0;
@@ -17,7 +10,6 @@ fn notify_forever(in: std.fs.File, out: std.fs.File) !void {
     var buffered_reader = std.io.bufferedReader(in.reader());
     const reader = buffered_reader.reader();
 
-    // FIXME
     var mem = [_]u8{0} ** 4096;
     var fixed_buffer_allocator = std.heap.FixedBufferAllocator.init(&mem);
     const allocator = fixed_buffer_allocator.allocator();
@@ -28,7 +20,7 @@ fn notify_forever(in: std.fs.File, out: std.fs.File) !void {
         std.debug.print("read={s} {x}\n", .{ line.items, line.items });
         defer line.clearRetainingCapacity();
 
-        var message: NetMessage = undefined;
+        var message: root.NetMessage = undefined;
         if (std.mem.eql(u8, line.items, needle_motion_detected)) {
             time_motion_detected = std.time.milliTimestamp();
             std.debug.print("detected {}\n", .{time_motion_detected});
@@ -64,9 +56,15 @@ pub fn main() !void {
     var destination_port: []const u8 = undefined;
     if (args.next()) |arg| {
         destination_address = arg;
+    } else {
+        std.debug.print("Missing address", .{});
+        std.posix.exit(1);
     }
     if (args.next()) |arg| {
         destination_port = arg;
+    } else {
+        std.debug.print("Missing port", .{});
+        std.posix.exit(1);
     }
 
     const port: u16 = try std.fmt.parseUnsigned(u16, destination_port, 10);
