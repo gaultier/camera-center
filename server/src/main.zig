@@ -15,7 +15,7 @@ pub const NetMessage = packed struct {
     timestamp_ms: i64,
 };
 
-const VIDEO_FILE_TIMER_DURATION_SECONDS = 60;
+const VIDEO_FILE_TIMER_DURATION_SECONDS = 1 * std.time.s_per_min;
 
 fn handle_tcp_connection(connection: *std.net.Server.Connection) !void {
     var event_file = try std.fs.cwd().createFile("events.txt", .{});
