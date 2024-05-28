@@ -34,8 +34,8 @@ fn notify_forever(in: std.fs.File, out: std.fs.File) !void {
             }
         } else if (std.mem.eql(u8, line.items, needle_motion_stopped)) {
             const now = std.time.milliTimestamp();
-            std.log.debug("stopped {} {}", .{ time_motion_detected, now });
             message = .{ .kind = .MotionStopped, .timestamp_ms = now, .duration = @intCast(now - time_motion_detected) };
+            std.log.debug("stopped {}", .{message});
             const message_bytes: []u8 = std.mem.asBytes(&message);
             if (out.write(message_bytes)) |sent| {
                 std.log.debug("sent {} {x}", .{ sent, message_bytes });
@@ -79,7 +79,9 @@ pub fn main() !void {
         std.posix.connect(socket, &address.any, address.getOsSockLen()) catch |err| {
             std.log.err("failed to connect over tcp, retrying {}", .{err});
             std.time.sleep(2_000_000_000);
+            continue;
         };
+        break;
     }
 
     try notify_forever(std.io.getStdIn(), .{ .handle = socket });
