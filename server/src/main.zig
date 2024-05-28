@@ -69,6 +69,14 @@ fn create_video_file() !std.fs.File {
     return file;
 }
 
+fn handle_timer_trigger(fd: i32, video_file: *std.fs.File) !void {
+    std.log.debug("timer triggered", .{});
+    var read_buffer = [_]u8{0} ** 8;
+    std.debug.assert(std.posix.read(fd, &read_buffer) catch 0 == 8);
+
+    video_file.* = try create_video_file();
+}
+
 // TODO: For multiple cameras we need to identify which stream it is.
 // Perhaps from the mpegts metadata?
 fn listen_udp() !void {
@@ -104,11 +112,7 @@ fn listen_udp() !void {
             handle_udp_packet(poll_fds[0].fd, video_file);
         }
         if ((poll_fds[1].revents & std.posix.POLL.IN) != 0) {
-            std.log.debug("timer triggered", .{});
-            var read_buffer = [_]u8{0} ** 8;
-            std.debug.assert(std.posix.read(poll_fds[1].fd, &read_buffer) catch 0 == 8);
-
-            video_file = try create_video_file();
+            try handle_timer_trigger(poll_fds[1].fd, &video_file);
         }
     }
 }
