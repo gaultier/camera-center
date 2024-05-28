@@ -11,7 +11,8 @@ pub const NetMessage = packed struct {
 const needle_motion_stopped = "Motion stopped";
 const needle_motion_detected = "Motion detected";
 
-fn notify_forever(in: std.fs.File, out: std.posix.socket_t, address: *const std.net.Address) !void {
+fn notify_forever(in: std.fs.File, address: *const std.net.Address) !void {
+    var out = try create_tcp_socket(address);
     var time_motion_detected: i64 = 0;
 
     var buffered_reader = std.io.bufferedReader(in.reader());
@@ -33,22 +34,22 @@ fn notify_forever(in: std.fs.File, out: std.posix.socket_t, address: *const std.
             message = .{ .kind = .MotionDetected, .timestamp_ms = time_motion_detected, .duration = 0 };
             std.log.debug("detected {}", .{time_motion_detected});
 
-            send_message(out, address, &message);
+            send_message(&out, address, &message);
         } else if (std.mem.eql(u8, line.items, needle_motion_stopped)) {
             const now = std.time.milliTimestamp();
             message = .{ .kind = .MotionStopped, .timestamp_ms = now, .duration = @intCast(now - time_motion_detected) };
             std.log.debug("stopped {}", .{message});
 
-            send_message(out, address, &message);
+            send_message(&out, address, &message);
         }
     } else |err| {
         std.log.err("stderr read error {}", .{err});
     }
 }
 
-fn tcp_connect_retry_forever(socket: std.posix.socket_t, address: *const std.net.Address) void {
+fn tcp_connect_retry_forever(socket: *std.posix.socket_t, address: *const std.net.Address) void {
     while (true) {
-        std.posix.connect(socket, &address.any, address.getOsSockLen()) catch |err| {
+        std.posix.connect(socket.*, &address.any, address.getOsSockLen()) catch |err| {
             std.log.err("failed to connect over tcp, retrying {}", .{err});
             std.time.sleep(2_000_000_000);
             continue;
@@ -57,14 +58,29 @@ fn tcp_connect_retry_forever(socket: std.posix.socket_t, address: *const std.net
     }
 }
 
-fn send_message(socket: std.posix.socket_t, address: *const std.net.Address, message: *const NetMessage) void {
+fn send_message(socket: *std.posix.socket_t, address: *const std.net.Address, message: *const NetMessage) void {
     const message_bytes = std.mem.asBytes(message);
-    if (std.posix.write(socket, message_bytes)) |sent| {
+
+    if (std.posix.write(socket.*, message_bytes)) |sent| {
         std.log.debug("sent {} {}", .{ sent, message });
     } else |err| switch (err) {
-        error.BrokenPipe => tcp_connect_retry_forever(socket, address),
+        error.BrokenPipe => {
+            std.posix.close(socket.*);
+            tcp_connect_retry_forever(socket, address);
+        },
         else => std.log.err("failed to send {}", .{err}),
     }
+}
+
+fn create_tcp_socket(address: *const std.net.Address) !std.posix.socket_t {
+    var socket = try std.posix.socket(std.posix.AF.INET, std.posix.SOCK.STREAM, 0);
+    std.posix.setsockopt(socket, 6, // SOL_TCP
+        std.posix.TCP.NODELAY, std.mem.sliceAsBytes(&[_]u32{1})) catch |err| {
+        std.log.err("failed to set TCP_NODELAY {}", .{err});
+    };
+    tcp_connect_retry_forever(&socket, address);
+
+    return socket;
 }
 
 pub fn main() !void {
@@ -88,13 +104,6 @@ pub fn main() !void {
 
     const port: u16 = try std.fmt.parseUnsigned(u16, destination_port, 10);
     const address = try std.net.Address.parseIp4(destination_address, port);
-    const socket = try std.posix.socket(std.posix.AF.INET, std.posix.SOCK.STREAM, 0);
-    std.posix.setsockopt(socket, 6, // SOL_TCP
-        std.posix.TCP.NODELAY, std.mem.sliceAsBytes(&[_]u32{1})) catch |err| {
-        std.log.err("failed to set TCP_NODELAY {}", .{err});
-    };
 
-    tcp_connect_retry_forever(socket, &address);
-
-    try notify_forever(std.io.getStdIn(), socket, &address);
+    try notify_forever(std.io.getStdIn(), &address);
 }
