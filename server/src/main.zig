@@ -15,7 +15,7 @@ pub const NetMessage = packed struct {
     timestamp_ms: i64,
 };
 
-const FILE_TIMER_DURATION_SECONDS = 60;
+const VIDEO_FILE_TIMER_DURATION_SECONDS = 60;
 
 fn handle_tcp_connection(connection: *std.net.Server.Connection) !void {
     var event_file = try std.fs.cwd().createFile("events.txt", .{});
@@ -80,8 +80,8 @@ fn listen_udp() !void {
 
     const timer = try std.posix.timerfd_create(std.posix.CLOCK.MONOTONIC, .{});
     try std.posix.timerfd_settime(timer, .{}, &.{
-        .it_value = .{ .tv_sec = FILE_TIMER_DURATION_SECONDS, .tv_nsec = 0 },
-        .it_interval = .{ .tv_sec = FILE_TIMER_DURATION_SECONDS, .tv_nsec = 0 },
+        .it_value = .{ .tv_sec = VIDEO_FILE_TIMER_DURATION_SECONDS, .tv_nsec = 0 },
+        .it_interval = .{ .tv_sec = VIDEO_FILE_TIMER_DURATION_SECONDS, .tv_nsec = 0 },
     }, null);
 
     var poll_fds = [2]std.posix.pollfd{ .{
