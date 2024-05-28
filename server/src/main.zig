@@ -1,4 +1,9 @@
 const std = @import("std");
+const c = @cImport({
+    // See https://github.com/ziglang/zig/issues/515
+    // @cDefine("_NO_CRT_STDIO_INLINE", "1");
+    @cInclude("time.h");
+});
 
 pub const NetMessageKind = enum(u8) { MotionDetected, MotionStopped };
 
@@ -26,8 +31,14 @@ fn handle_tcp_connection(connection: *std.net.Server.Connection) !void {
         const read = read_buffer[0..read_n];
         // TODO: length checks etc. Ringbuffer?
         const message: NetMessage = std.mem.bytesToValue(NetMessage, read);
-        std.log.debug("message={}", .{message});
-        try std.fmt.format(event_file.writer(), "{}\n", .{message});
+
+        var date: [256]u8 = undefined;
+        const date_c: [*c]u8 = @as([*c]u8, @ptrCast(@alignCast(&date)));
+        std.debug.assert(c.strftime(date_c, 256, "%Y-%m-%d %H:%M:%S", message.timestamp_ms) > 0);
+        std.log.debug("message={} {s}", .{ message, date_c });
+
+        const writer = event_file.writer();
+        try std.fmt.format(writer, "{s} {}\n", .{ date, message.duration });
     }
 }
 
@@ -98,8 +109,28 @@ fn listen_tcp() !void {
     }
 }
 
+fn fill_string_from_timestamp_ms(timestamp_ms: i64, out: *[256]u8) usize {
+    const timestamp_seconds: i64 = @divFloor(timestamp_ms, 1000);
+    var time: c.struct_tm = undefined;
+    _ = c.localtime_r(&@as(c.time_t, timestamp_seconds), &time);
+
+    const date_c: [*c]u8 = @as([*c]u8, @ptrCast(@alignCast(out)));
+    const res = c.strftime(date_c, 256, "%Y-%m-%d %H:%M:%S", @as([*c]const c.struct_tm, &time));
+    std.debug.assert(res > 0);
+    return res;
+}
+
 pub fn main() !void {
     _ = try std.Thread.spawn(.{}, listen_udp, .{});
 
     try listen_tcp();
+}
+
+test "strftime" {
+    const timestamp: i64 = 1_716_902_774_000;
+    var res: [256:0]u8 = undefined;
+    const len = fill_string_from_timestamp_ms(timestamp, &res);
+
+    std.debug.print("{s}", .{res[0..len]});
+    try std.testing.expect(std.mem.eql(u8, "2024-05-28 15:26:14", res[0..len]));
 }
