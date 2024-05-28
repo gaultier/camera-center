@@ -1,5 +1,9 @@
 const std = @import("std");
 
+pub const std_options = .{
+    .log_level = .info,
+};
+
 pub const NetMessageKind = enum(u8) { MotionDetected, MotionStopped };
 
 pub const NetMessage = packed struct {
@@ -32,13 +36,13 @@ fn notify_forever(in: std.fs.File, address: *const std.net.Address) !void {
         if (std.mem.eql(u8, line.items, needle_motion_detected)) {
             time_motion_detected = std.time.milliTimestamp();
             message = .{ .kind = .MotionDetected, .timestamp_ms = time_motion_detected, .duration_ms = 0 };
-            std.log.debug("detected {}", .{time_motion_detected});
+            std.log.info("detected {}", .{time_motion_detected});
 
             try send_message(&out, address, &message);
         } else if (std.mem.eql(u8, line.items, needle_motion_stopped)) {
             const now = std.time.milliTimestamp();
             message = .{ .kind = .MotionStopped, .timestamp_ms = now, .duration_ms = @intCast(now - time_motion_detected) };
-            std.log.debug("stopped {}", .{message});
+            std.log.info("stopped {}", .{message});
 
             try send_message(&out, address, &message);
         }
