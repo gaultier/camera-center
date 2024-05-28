@@ -34,13 +34,13 @@ fn notify_forever(in: std.fs.File, address: *const std.net.Address) !void {
             message = .{ .kind = .MotionDetected, .timestamp_ms = time_motion_detected, .duration = 0 };
             std.log.debug("detected {}", .{time_motion_detected});
 
-            send_message(&out, address, &message);
+            try send_message(&out, address, &message);
         } else if (std.mem.eql(u8, line.items, needle_motion_stopped)) {
             const now = std.time.milliTimestamp();
             message = .{ .kind = .MotionStopped, .timestamp_ms = now, .duration = @intCast(now - time_motion_detected) };
             std.log.debug("stopped {}", .{message});
 
-            send_message(&out, address, &message);
+            try send_message(&out, address, &message);
         }
     } else |err| {
         std.log.err("stderr read error {}", .{err});
@@ -58,7 +58,7 @@ fn tcp_connect_retry_forever(socket: *std.posix.socket_t, address: *const std.ne
     }
 }
 
-fn send_message(socket: *std.posix.socket_t, address: *const std.net.Address, message: *const NetMessage) void {
+fn send_message(socket: *std.posix.socket_t, address: *const std.net.Address, message: *const NetMessage) !void {
     const message_bytes = std.mem.asBytes(message);
 
     if (std.posix.write(socket.*, message_bytes)) |sent| {
@@ -66,6 +66,7 @@ fn send_message(socket: *std.posix.socket_t, address: *const std.net.Address, me
     } else |err| switch (err) {
         error.BrokenPipe => {
             std.posix.close(socket.*);
+            socket.* = try create_tcp_socket(address);
             tcp_connect_retry_forever(socket, address);
         },
         else => std.log.err("failed to send {}", .{err}),
