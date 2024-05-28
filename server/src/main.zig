@@ -33,6 +33,8 @@ fn listen_udp() !void {
     const address = std.net.Address.parseIp4("0.0.0.0", 12345) catch unreachable;
     try std.posix.bind(udp_socket, &address.any, address.getOsSockLen());
 
+    var file = try std.fs.cwd().createFile("out.ts", .{ .read = true });
+
     const timer = try std.posix.timerfd_create(std.posix.CLOCK.MONOTONIC, .{});
     try std.posix.timerfd_settime(timer, .{}, &.{
         .it_value = .{ .tv_sec = FILE_TIMER_DURATION_SECONDS, .tv_nsec = 0 },
@@ -57,8 +59,12 @@ fn listen_udp() !void {
 
         if ((poll_fds[0].revents & std.posix.POLL.IN) != 0) {
             var read_buffer = [_]u8{0} ** 4096;
-            if (std.posix.read(poll_fds[0].fd, &read_buffer)) |n| {
-                std.debug.print("udp read={}\n", .{n});
+            if (std.posix.read(poll_fds[0].fd, &read_buffer)) |n_read| {
+                std.debug.print("udp read={}\n", .{n_read});
+
+                file.writeAll(read_buffer[0..n_read]) catch |err| {
+                    std.debug.print("failed to write all to file {}\n", .{err});
+                };
             } else |err| {
                 std.debug.print("failed to read udp {}\n", .{err});
             }
