@@ -18,9 +18,9 @@ fn notify_forever(in: std.fs.File, out: std.fs.File) !void {
     const reader = buffered_reader.reader();
 
     // FIXME
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
+    var mem = [_]u8{0} ** 4096;
+    var fixed_buffer_allocator = std.heap.FixedBufferAllocator.init(&mem);
+    const allocator = fixed_buffer_allocator.allocator();
     var line = std.ArrayList(u8).init(allocator);
     const writer = line.writer();
 
