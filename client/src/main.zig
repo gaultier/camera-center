@@ -36,7 +36,7 @@ fn notify_forever(in: std.fs.File, address: *const std.net.Address) !void {
         if (std.mem.eql(u8, line.items, needle_motion_detected)) {
             time_motion_detected = std.time.milliTimestamp();
             message = .{ .kind = .MotionDetected, .timestamp_ms = time_motion_detected, .duration_ms = 0 };
-            std.log.info("detected {}", .{time_motion_detected});
+            std.log.info("detected {}", .{message});
 
             try send_message(&out, address, &message);
         } else if (std.mem.eql(u8, line.items, needle_motion_stopped)) {
