@@ -16,6 +16,8 @@ pub const NetMessage = packed struct {
 };
 
 const VIDEO_FILE_TIMER_DURATION_SECONDS = 1 * std.time.s_per_min;
+const CLEANER_FREQUENCY_SECONDS = 1 * std.time.ns_per_s;
+const VIDEO_FILE_MAX_RETAIN_DURATION_SECONDS = 1 * std.time.s_per_week;
 
 fn handle_tcp_connection(connection: *std.net.Server.Connection) !void {
     var event_file = try std.fs.cwd().createFile("events.txt", .{});
@@ -132,6 +134,41 @@ fn listen_tcp() !void {
     }
 }
 
+fn run_delete_old_video_files_forever() !void {
+    const dir = try std.fs.cwd().openDir(".", .{ .iterate = true });
+
+    while (true) {
+        delete_old_video_files(dir);
+        std.time.sleep(CLEANER_FREQUENCY_SECONDS);
+    }
+}
+
+fn delete_old_video_files(dir: std.fs.Dir) void {
+    var it = dir.iterate();
+
+    const now = std.time.nanoTimestamp();
+
+    while (it.next()) |entry_opt| {
+        if (entry_opt) |entry| {
+            // Skip non-video files.
+            if (!std.mem.startsWith(u8, entry.name, "2")) continue;
+
+            const stat = std.fs.cwd().statFile(entry.name) catch |err| {
+                std.log.err("failed to stat file: {s} {}", .{ entry.name, err });
+                continue;
+            };
+
+            const elapsed_seconds = @divFloor((now - stat.mtime), std.time.ns_per_s);
+
+            if (elapsed_seconds > VIDEO_FILE_MAX_RETAIN_DURATION_SECONDS) {
+                std.log.info("mtime {s} {}", .{ entry.name, elapsed_seconds });
+            }
+        }
+    } else |err| {
+        std.log.err("failed to iterate over directory entries: {}", .{err});
+    }
+}
+
 fn fill_string_from_timestamp_ms(timestamp_ms: i64, out: *[256]u8) usize {
     const timestamp_seconds: i64 = @divFloor(timestamp_ms, 1000);
     var time: c.struct_tm = undefined;
@@ -145,6 +182,7 @@ fn fill_string_from_timestamp_ms(timestamp_ms: i64, out: *[256]u8) usize {
 
 pub fn main() !void {
     _ = try std.Thread.spawn(.{}, listen_udp, .{});
+    _ = try std.Thread.spawn(.{}, run_delete_old_video_files_forever, .{});
 
     try listen_tcp();
 }
