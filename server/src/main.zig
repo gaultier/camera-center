@@ -1,6 +1,6 @@
 const std = @import("std");
 const c = @cImport({
-    @cInclude("time.h"); // For strftime
+    @cInclude("time.h"); // For `strftime`, `localtime_r`.
 });
 
 pub const std_options = .{
