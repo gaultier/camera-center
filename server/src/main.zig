@@ -38,10 +38,10 @@ fn handle_tcp_connection(connection: *std.net.Server.Connection) !void {
         std.log.info("event {}", .{message});
 
         var date: [256:0]u8 = undefined;
-        const date_len = fill_string_from_timestamp_ms(message.timestamp_ms, &date);
+        const date_str = fill_string_from_timestamp_ms(message.timestamp_ms, &date);
 
         const writer = event_file.writer();
-        try std.fmt.format(writer, "{s} {}\n", .{ date[0..date_len], message.duration_ms });
+        try std.fmt.format(writer, "{s} {}\n", .{ date_str, message.duration_ms });
     }
 }
 
@@ -61,10 +61,9 @@ fn handle_udp_packet(in: std.posix.socket_t, out: std.fs.File) void {
 fn create_video_file() !std.fs.File {
     const now = std.time.milliTimestamp();
     var date: [256:0]u8 = undefined;
-    _ = fill_string_from_timestamp_ms(now, &date);
-    const date_c: [*c]u8 = @as([*c]u8, @ptrCast(@alignCast(&date)));
+    const date_str = fill_string_from_timestamp_ms(now, &date);
 
-    const file = try std.fs.cwd().createFileZ(date_c, .{});
+    const file = try std.fs.cwd().createFileZ(date_str, .{});
     try file.seekFromEnd(0);
 
     std.log.info("new video file {s}", .{date});
@@ -180,7 +179,7 @@ fn delete_old_video_files(dir: std.fs.Dir) void {
     }
 }
 
-fn fill_string_from_timestamp_ms(timestamp_ms: i64, out: *[256]u8) usize {
+fn fill_string_from_timestamp_ms(timestamp_ms: i64, out: *[256:0]u8) [:0]u8 {
     const timestamp_seconds: i64 = @divFloor(timestamp_ms, 1000);
     var time: c.struct_tm = undefined;
     _ = c.localtime_r(&@as(c.time_t, timestamp_seconds), &time);
@@ -188,7 +187,7 @@ fn fill_string_from_timestamp_ms(timestamp_ms: i64, out: *[256]u8) usize {
     const date_c: [*c]u8 = @as([*c]u8, @ptrCast(@alignCast(out)));
     const res = c.strftime(date_c, 256, "%Y-%m-%d %H:%M:%S", @as([*c]const c.struct_tm, &time));
     std.debug.assert(res > 0);
-    return res;
+    return out.*[0..res :0];
 }
 
 pub fn main() !void {
@@ -201,8 +200,8 @@ pub fn main() !void {
 test "fill_string_from_timestamp_ms" {
     const timestamp: i64 = 1_716_902_774_000;
     var res: [256:0]u8 = undefined;
-    const len = fill_string_from_timestamp_ms(timestamp, &res);
+    const str = fill_string_from_timestamp_ms(timestamp, &res);
 
-    std.debug.print("{s}", .{res[0..len]});
-    try std.testing.expect(std.mem.eql(u8, "2024-05-28 15:26:14", res[0..len]));
+    std.debug.print("{s}", .{str});
+    try std.testing.expect(std.mem.eql(u8, "2024-05-28 15:26:14", str));
 }
