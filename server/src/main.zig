@@ -88,8 +88,8 @@ fn listen_udp() !void {
 
     var video_file = try create_video_file();
 
-    const timer = try std.posix.timerfd_create(std.posix.CLOCK.MONOTONIC, .{});
-    try std.posix.timerfd_settime(timer, .{}, &.{
+    const timer_new_file = try std.posix.timerfd_create(std.posix.CLOCK.MONOTONIC, .{});
+    try std.posix.timerfd_settime(timer_new_file, .{}, &.{
         .it_value = .{ .tv_sec = VIDEO_FILE_TIMER_DURATION_SECONDS, .tv_nsec = 0 },
         .it_interval = .{ .tv_sec = VIDEO_FILE_TIMER_DURATION_SECONDS, .tv_nsec = 0 },
     }, null);
@@ -99,7 +99,7 @@ fn listen_udp() !void {
         .events = std.posix.POLL.IN,
         .revents = 0,
     }, .{
-        .fd = timer,
+        .fd = timer_new_file,
         .events = std.posix.POLL.IN,
         .revents = 0,
     } };
@@ -109,6 +109,8 @@ fn listen_udp() !void {
             std.log.err("poll error {}", .{err});
             continue;
         };
+
+        // TODO: Handle `POLL.ERR`.
 
         if ((poll_fds[0].revents & std.posix.POLL.IN) != 0) {
             handle_udp_packet(poll_fds[0].fd, video_file);
