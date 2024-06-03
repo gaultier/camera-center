@@ -149,7 +149,7 @@ pub fn main() !void {
     try listen_tcp();
 }
 
-test "strftime" {
+test "fill_string_from_timestamp_ms" {
     const timestamp: i64 = 1_716_902_774_000;
     var res: [256:0]u8 = undefined;
     const len = fill_string_from_timestamp_ms(timestamp, &res);
