@@ -143,26 +143,34 @@ fn run_delete_old_video_files_forever() !void {
     }
 }
 
+fn delete_old_video_file(name: []const u8, now: i128) !void {
+    const stat = std.fs.cwd().statFile(name) catch |err| {
+        std.log.err("failed to stat file: {s} {}", .{ name, err });
+        return err;
+    };
+
+    const elapsed_seconds = @divFloor((now - stat.mtime), std.time.ns_per_s);
+
+    if (elapsed_seconds < VIDEO_FILE_MAX_RETAIN_DURATION_SECONDS) return;
+
+    std.fs.cwd().deleteFile(name) catch |err| {
+        std.log.err("failed to delete file: {s} {}", .{ name, err });
+    };
+    std.log.info("deleted {s} {}", .{ name, elapsed_seconds });
+}
+
 fn delete_old_video_files(dir: std.fs.Dir) void {
     var it = dir.iterate();
 
-    const now = std.time.nanoTimestamp();
+    const now_ns = std.time.nanoTimestamp();
 
     while (it.next()) |entry_opt| {
         if (entry_opt) |entry| {
             // Skip non-video files.
+            if (entry.kind != .file) continue;
             if (!std.mem.startsWith(u8, entry.name, "2")) continue;
 
-            const stat = std.fs.cwd().statFile(entry.name) catch |err| {
-                std.log.err("failed to stat file: {s} {}", .{ entry.name, err });
-                continue;
-            };
-
-            const elapsed_seconds = @divFloor((now - stat.mtime), std.time.ns_per_s);
-
-            if (elapsed_seconds > VIDEO_FILE_MAX_RETAIN_DURATION_SECONDS) {
-                std.log.info("mtime {s} {}", .{ entry.name, elapsed_seconds });
-            }
+            delete_old_video_file(entry.name, now_ns) catch continue;
         }
     } else |err| {
         std.log.err("failed to iterate over directory entries: {}", .{err});
