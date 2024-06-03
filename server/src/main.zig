@@ -46,28 +46,46 @@ fn handle_tcp_connection_for_incoming_events(connection: *std.net.Server.Connect
 }
 
 fn handle_tcp_connection_for_viewer(connection: *std.net.Server.Connection) !void {
-    _ = connection;
+    const inotify = try std.posix.inotify_init1(0);
+    const watch = try std.posix.inotify_add_watch(inotify, ".", std.os.linux.IN.ACCESS | std.os.linux.IN.CREATE);
 
-    // while (true) {
-    //     var read_buffer = [_]u8{0} ** 4096;
-    //     const read_n = try connection.stream.read(&read_buffer);
-    //     std.log.debug("tcp read={} {x}", .{ read_n, read_buffer[0..read_n] });
-    //     if (read_n == 0) {
-    //         std.log.debug("tcp read={} client likely closed the connection", .{read_n});
-    //         std.process.exit(0);
-    //     }
+    const INotifyEvent = extern struct {
+        wd: i32,
+        mask: u32,
+        cookie: u32,
+        len: u32,
+        // name: [:0]u8,
+    };
 
-    //     const read = read_buffer[0..read_n];
-    //     // TODO: length checks etc. Ringbuffer?
-    //     const message: NetMessage = std.mem.bytesToValue(NetMessage, read);
-    //     std.log.info("event {}", .{message});
+    while (true) {
+        var in_file: std.fs.File = undefined;
+        var read_buf = [_]u8{0} ** (std.fs.MAX_PATH_BYTES + @sizeOf(INotifyEvent));
 
-    //     var date: [256:0]u8 = undefined;
-    //     const date_str = fill_string_from_timestamp_ms(message.timestamp_ms, &date);
+        if (std.posix.read(watch, &read_buf)) |n_read| {
+            std.log.info("event read {} {}", .{ n_read, @sizeOf(INotifyEvent) });
 
-    //     const writer = event_file.writer();
-    //     try std.fmt.format(writer, "{s} {}\n", .{ date_str, message.duration_ms });
-    // }
+            std.debug.assert(n_read > @sizeOf(INotifyEvent));
+
+            // FIXME: open(2) each loop cycle.
+            const event: INotifyEvent = std.mem.bytesToValue(INotifyEvent, read_buf[0..@sizeOf(INotifyEvent)]);
+            const file_name = read_buf[@sizeOf(INotifyEvent) .. @sizeOf(INotifyEvent) + event.len];
+            in_file = try std.fs.cwd().openFile(file_name, .{});
+            try in_file.seekFromEnd(0);
+            defer in_file.close();
+
+            std.log.info("event {s}", .{file_name});
+        } else |err| {
+            std.log.err("failed to read inotify event {}", .{err});
+            continue;
+        }
+
+        if (std.posix.sendfile(connection.stream.handle, in_file.handle, 0, 4096, &.{}, &.{}, 0)) |n_sendfile| {
+            std.log.debug("sendfile {}", .{n_sendfile});
+        } else |err| switch (err) {
+            error.BrokenPipe => return,
+            else => std.log.err("sendfile err {}", .{err}),
+        }
+    }
 }
 
 fn handle_udp_packet(in: std.posix.socket_t, out: std.fs.File) void {
@@ -88,7 +106,7 @@ fn create_video_file() !std.fs.File {
     var date: [256:0]u8 = undefined;
     const date_str = fill_string_from_timestamp_ms(now, &date);
 
-    const file = try std.fs.cwd().createFileZ(date_str, .{});
+    const file = try std.fs.cwd().createFileZ(date_str, .{ .read = true });
     try file.seekFromEnd(0);
 
     std.log.info("new video file {s}", .{date});
@@ -100,6 +118,7 @@ fn handle_timer_trigger(fd: i32, video_file: *std.fs.File) !void {
     var read_buffer = [_]u8{0} ** 8;
     std.debug.assert(std.posix.read(fd, &read_buffer) catch 0 == 8);
 
+    video_file.*.close();
     video_file.* = try create_video_file();
 }
 
@@ -235,7 +254,7 @@ fn listen_tcp_for_viewers() void {
             continue;
         }
         // Child
-        try handle_tcp_connection_for_viewer(&connection);
+        handle_tcp_connection_for_viewer(&connection) catch {};
     }
 }
 
