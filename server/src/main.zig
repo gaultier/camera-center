@@ -15,7 +15,7 @@ pub const NetMessage = packed struct {
     timestamp_ms: i64,
 };
 
-const VIDEO_FILE_TIMER_DURATION_SECONDS = 1 * std.time.s_per_min;
+const VIDEO_FILE_DURATION_SECONDS = 1 * std.time.s_per_min;
 const CLEANER_FREQUENCY_SECONDS = 1 * std.time.s_per_min;
 const VIDEO_FILE_MAX_RETAIN_DURATION_SECONDS = 1 * std.time.s_per_week;
 
@@ -90,8 +90,8 @@ fn listen_udp() !void {
 
     const timer_new_file = try std.posix.timerfd_create(std.posix.CLOCK.MONOTONIC, .{});
     try std.posix.timerfd_settime(timer_new_file, .{}, &.{
-        .it_value = .{ .tv_sec = VIDEO_FILE_TIMER_DURATION_SECONDS, .tv_nsec = 0 },
-        .it_interval = .{ .tv_sec = VIDEO_FILE_TIMER_DURATION_SECONDS, .tv_nsec = 0 },
+        .it_value = .{ .tv_sec = VIDEO_FILE_DURATION_SECONDS, .tv_nsec = 0 },
+        .it_interval = .{ .tv_sec = VIDEO_FILE_DURATION_SECONDS, .tv_nsec = 0 },
     }, null);
 
     var poll_fds = [2]std.posix.pollfd{ .{
