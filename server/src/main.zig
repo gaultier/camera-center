@@ -16,7 +16,7 @@ pub const NetMessage = packed struct {
 };
 
 const VIDEO_FILE_TIMER_DURATION_SECONDS = 1 * std.time.s_per_min;
-const CLEANER_FREQUENCY_SECONDS = 1 * std.time.ns_per_s;
+const CLEANER_FREQUENCY_SECONDS = 1 * std.time.s_per_min;
 const VIDEO_FILE_MAX_RETAIN_DURATION_SECONDS = 1 * std.time.s_per_week;
 
 fn handle_tcp_connection(connection: *std.net.Server.Connection) !void {
@@ -114,9 +114,10 @@ fn listen_udp() !void {
 
         if ((poll_fds[0].revents & std.posix.POLL.IN) != 0) {
             handle_udp_packet(poll_fds[0].fd, video_file);
-        }
-        if ((poll_fds[1].revents & std.posix.POLL.IN) != 0) {
+        } else if ((poll_fds[1].revents & std.posix.POLL.IN) != 0) {
             try handle_timer_trigger(poll_fds[1].fd, &video_file);
+        } else {
+            std.time.sleep(5 * std.time.ns_per_ms);
         }
     }
 }
@@ -141,7 +142,7 @@ fn run_delete_old_video_files_forever() !void {
 
     while (true) {
         delete_old_video_files(dir);
-        std.time.sleep(CLEANER_FREQUENCY_SECONDS);
+        std.time.sleep(CLEANER_FREQUENCY_SECONDS * std.time.ns_per_s);
     }
 }
 
@@ -173,7 +174,7 @@ fn delete_old_video_files(dir: std.fs.Dir) void {
             if (!std.mem.startsWith(u8, entry.name, "2")) continue;
 
             delete_old_video_file(entry.name, now_ns) catch continue;
-        }
+        } else break; // End of directory.
     } else |err| {
         std.log.err("failed to iterate over directory entries: {}", .{err});
     }
