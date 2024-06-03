@@ -19,7 +19,7 @@ const VIDEO_FILE_DURATION_SECONDS = 1 * std.time.s_per_min;
 const CLEANER_FREQUENCY_SECONDS = 1 * std.time.s_per_min;
 const VIDEO_FILE_MAX_RETAIN_DURATION_SECONDS = 1 * std.time.s_per_week;
 
-fn handle_tcp_connection(connection: *std.net.Server.Connection) !void {
+fn handle_tcp_connection_for_incoming_events(connection: *std.net.Server.Connection) !void {
     var event_file = try std.fs.cwd().createFile("events.txt", .{});
     try event_file.seekFromEnd(0);
 
@@ -43,6 +43,31 @@ fn handle_tcp_connection(connection: *std.net.Server.Connection) !void {
         const writer = event_file.writer();
         try std.fmt.format(writer, "{s} {}\n", .{ date_str, message.duration_ms });
     }
+}
+
+fn handle_tcp_connection_for_viewer(connection: *std.net.Server.Connection) !void {
+    _ = connection;
+
+    // while (true) {
+    //     var read_buffer = [_]u8{0} ** 4096;
+    //     const read_n = try connection.stream.read(&read_buffer);
+    //     std.log.debug("tcp read={} {x}", .{ read_n, read_buffer[0..read_n] });
+    //     if (read_n == 0) {
+    //         std.log.debug("tcp read={} client likely closed the connection", .{read_n});
+    //         std.process.exit(0);
+    //     }
+
+    //     const read = read_buffer[0..read_n];
+    //     // TODO: length checks etc. Ringbuffer?
+    //     const message: NetMessage = std.mem.bytesToValue(NetMessage, read);
+    //     std.log.info("event {}", .{message});
+
+    //     var date: [256:0]u8 = undefined;
+    //     const date_str = fill_string_from_timestamp_ms(message.timestamp_ms, &date);
+
+    //     const writer = event_file.writer();
+    //     try std.fmt.format(writer, "{s} {}\n", .{ date_str, message.duration_ms });
+    // }
 }
 
 fn handle_udp_packet(in: std.posix.socket_t, out: std.fs.File) void {
@@ -80,7 +105,7 @@ fn handle_timer_trigger(fd: i32, video_file: *std.fs.File) !void {
 
 // TODO: For multiple cameras we need to identify which stream it is.
 // Perhaps from the mpegts metadata?
-fn listen_udp() !void {
+fn listen_udp_for_incoming_video_data() !void {
     const udp_socket = try std.posix.socket(std.posix.AF.INET, std.posix.SOCK.DGRAM, 0);
     const address = std.net.Address.parseIp4("0.0.0.0", 12345) catch unreachable;
     try std.posix.bind(udp_socket, &address.any, address.getOsSockLen());
@@ -121,7 +146,7 @@ fn listen_udp() !void {
     }
 }
 
-fn listen_tcp() !void {
+fn listen_tcp_for_incoming_events() !void {
     const address = std.net.Address.parseIp4("0.0.0.0", 12345) catch unreachable;
     var server = try std.net.Address.listen(address, .{ .reuse_address = true });
 
@@ -132,7 +157,7 @@ fn listen_tcp() !void {
             continue;
         }
         // Child
-        try handle_tcp_connection(&connection);
+        try handle_tcp_connection_for_incoming_events(&connection);
     }
 }
 
@@ -190,11 +215,41 @@ fn fill_string_from_timestamp_ms(timestamp_ms: i64, out: *[256:0]u8) [:0]u8 {
     return out.*[0..res :0];
 }
 
-pub fn main() !void {
-    _ = try std.Thread.spawn(.{}, listen_udp, .{});
-    _ = try std.Thread.spawn(.{}, run_delete_old_video_files_forever, .{});
+fn listen_tcp_for_viewers() void {
+    const address = std.net.Address.parseIp4("0.0.0.0", 12346) catch unreachable;
+    var server = std.net.Address.listen(address, .{ .reuse_address = true }) catch |err| {
+        std.log.err("failed to tcp listen {}", .{err});
+        return;
+    };
 
-    try listen_tcp();
+    while (true) {
+        var connection = server.accept() catch |err| {
+            std.log.err("failed to tcp accept {}", .{err});
+            continue;
+        };
+        const pid = std.posix.fork() catch |err| {
+            std.log.err("failed to fork {}", .{err});
+            @panic("failed to fork");
+        };
+        if (pid > 0) { // Parent.
+            continue;
+        }
+        // Child
+        try handle_tcp_connection_for_viewer(&connection);
+    }
+}
+
+pub fn main() !void {
+    var listen_udp_for_incoming_video_data_thread = try std.Thread.spawn(.{}, listen_udp_for_incoming_video_data, .{});
+    try listen_udp_for_incoming_video_data_thread.setName("incoming_video");
+
+    var run_delete_old_video_files_forever_thread = try std.Thread.spawn(.{}, run_delete_old_video_files_forever, .{});
+    try run_delete_old_video_files_forever_thread.setName("delete_old");
+
+    var listen_tcp_for_viewers_thread = try std.Thread.spawn(.{}, listen_tcp_for_viewers, .{});
+    try listen_tcp_for_viewers_thread.setName("listen_viewers");
+
+    try listen_tcp_for_incoming_events();
 }
 
 test "fill_string_from_timestamp_ms" {
