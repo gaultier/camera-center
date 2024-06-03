@@ -54,7 +54,6 @@ fn handle_tcp_connection_for_viewer(connection: *std.net.Server.Connection) !voi
         mask: u32,
         cookie: u32,
         len: u32,
-        // name: [:0]u8,
     };
 
     while (true) {
