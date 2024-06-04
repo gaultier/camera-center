@@ -46,44 +46,20 @@ fn handle_tcp_connection_for_incoming_events(connection: *std.net.Server.Connect
 }
 
 fn handle_tcp_connection_for_viewer(connection: *std.net.Server.Connection) !void {
-    const inotify = try std.posix.inotify_init1(0);
-    const watch = try std.posix.inotify_add_watch(inotify, ".", std.os.linux.IN.ACCESS | std.os.linux.IN.CREATE);
-
-    const INotifyEvent = extern struct {
-        wd: i32,
-        mask: u32,
-        cookie: u32,
-        len: u32,
-    };
+    _ = connection;
 
     while (true) {
-        var in_file: std.fs.File = undefined;
-        var read_buf = [_]u8{0} ** (std.fs.MAX_PATH_BYTES + @sizeOf(INotifyEvent));
+        // var read_buf = [_]u8{0} ** 4096;
 
-        if (std.posix.read(watch, &read_buf)) |n_read| {
-            std.log.info("event read {} {}", .{ n_read, @sizeOf(INotifyEvent) });
+        // if (std.posix.read(watch, &read_buf)) |n_read| {
+        //     std.log.info("event read {} {}", .{ n_read, @sizeOf(INotifyEvent) });
 
-            std.debug.assert(n_read > @sizeOf(INotifyEvent));
-
-            // FIXME: open(2) each loop cycle.
-            const event: INotifyEvent = std.mem.bytesToValue(INotifyEvent, read_buf[0..@sizeOf(INotifyEvent)]);
-            const file_name = read_buf[@sizeOf(INotifyEvent) .. @sizeOf(INotifyEvent) + event.len];
-            in_file = try std.fs.cwd().openFile(file_name, .{});
-            try in_file.seekFromEnd(0);
-            defer in_file.close();
-
-            std.log.info("event {s}", .{file_name});
-        } else |err| {
-            std.log.err("failed to read inotify event {}", .{err});
-            continue;
-        }
-
-        if (std.posix.sendfile(connection.stream.handle, in_file.handle, 0, 4096, &.{}, &.{}, 0)) |n_sendfile| {
-            std.log.debug("sendfile {}", .{n_sendfile});
-        } else |err| switch (err) {
-            error.BrokenPipe => return,
-            else => std.log.err("sendfile err {}", .{err}),
-        }
+        // if (std.posix.sendfile(connection.stream.handle, in_file.handle, 0, 4096, &.{}, &.{}, 0)) |n_sendfile| {
+        //     std.log.debug("sendfile {}", .{n_sendfile});
+        // } else |err| switch (err) {
+        //     error.BrokenPipe => return,
+        //     else => std.log.err("sendfile err {}", .{err}),
+        // }
     }
 }
 
