@@ -184,7 +184,7 @@ fn listen_tcp_for_viewers(viewers: *std.ArrayList(std.posix.socket_t), viewers_m
         var connection = try server.accept();
         std.log.info("new viewer accepted", .{});
         var viewer_handler_thread = try std.Thread.spawn(.{}, handle_tcp_connection_for_viewer, .{ &connection, viewers, viewers_mtx });
-        try viewer_handler_thread.setName("viewer_handler");
+        viewer_handler_thread.setName("viewer_handler") catch {};
         viewer_handler_thread.detach();
     }
 }
