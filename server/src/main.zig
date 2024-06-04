@@ -82,15 +82,15 @@ fn handle_timer_trigger(fd: i32, video_file: *std.fs.File) !void {
 // TODO: For multiple cameras we need to identify which stream it is.
 // Perhaps from the mpegts metadata?
 fn listen_udp_for_incoming_video_data() !void {
-    const udp_socket = try std.posix.socket(std.posix.AF.INET, std.posix.SOCK.DGRAM, 0);
-
-    try std.posix.setsockopt(udp_socket, std.posix.SOL.SOCKET, std.posix.SO.REUSEPORT, std.mem.sliceAsBytes(&[1]u32{1}));
-    try std.posix.setsockopt(udp_socket, std.posix.SOL.SOCKET, std.posix.SO.REUSEADDR, std.mem.sliceAsBytes(&[1]u32{1}));
+    const socket = try std.posix.socket(std.posix.AF.INET, std.posix.SOCK.DGRAM, 0);
     const address = std.net.Address.parseIp4("239.0.0.1", 12345) catch unreachable;
-    // Enter broadcast group.
-    try std.posix.setsockopt(udp_socket, std.posix.SOL.IP, std.os.linux.IP.ADD_MEMBERSHIP, std.mem.sliceAsBytes(&[2]u32{ address.in.sa.addr, 0 }));
 
-    try std.posix.bind(udp_socket, &address.any, address.getOsSockLen());
+    try std.posix.setsockopt(socket, std.posix.SOL.SOCKET, std.posix.SO.REUSEPORT, std.mem.sliceAsBytes(&[1]u32{1}));
+    try std.posix.setsockopt(socket, std.posix.SOL.SOCKET, std.posix.SO.REUSEADDR, std.mem.sliceAsBytes(&[1]u32{1}));
+    // Enter broadcast group.
+    try std.posix.setsockopt(socket, std.posix.SOL.IP, std.os.linux.IP.ADD_MEMBERSHIP, std.mem.sliceAsBytes(&[2]u32{ address.in.sa.addr, 0 }));
+
+    try std.posix.bind(socket, &address.any, address.getOsSockLen());
 
     var video_file = try create_video_file();
 
@@ -101,7 +101,7 @@ fn listen_udp_for_incoming_video_data() !void {
     }, null);
 
     var poll_fds = [2]std.posix.pollfd{ .{
-        .fd = udp_socket,
+        .fd = socket,
         .events = std.posix.POLL.IN,
         .revents = 0,
     }, .{
