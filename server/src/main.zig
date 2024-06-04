@@ -23,25 +23,36 @@ fn handle_tcp_connection_for_incoming_events(connection: *std.net.Server.Connect
     var event_file = try std.fs.cwd().openFile("events.txt", .{ .mode = .write_only });
     try event_file.seekFromEnd(0);
 
+    var mem = [_]u8{0} ** 4096;
+    var fixed_buffer_allocator = std.heap.FixedBufferAllocator.init(&mem);
+    const allocator = fixed_buffer_allocator.allocator();
+    var ring = try std.RingBuffer.init(allocator, 2048);
+
     while (true) {
-        var read_buffer = [_]u8{0} ** 4096;
-        const read_n = try connection.stream.read(&read_buffer);
-        std.log.debug("tcp read={} {x}", .{ read_n, read_buffer[0..read_n] });
-        if (read_n == 0) {
-            std.log.debug("tcp read={} client likely closed the connection", .{read_n});
+        var read_buffer_net = [_]u8{0} ** 512;
+        const n_read = connection.stream.read(&read_buffer_net) catch |err| {
+            std.log.err("failed to read message {}", .{err});
+            continue;
+        };
+        std.log.debug("tcp read={} {x}", .{ n_read, read_buffer_net[0..n_read] });
+        if (n_read == 0) {
+            std.log.debug("tcp read={} client likely closed the connection", .{n_read});
             std.process.exit(0);
         }
+        ring.writeSliceAssumeCapacity(read_buffer_net[0..n_read]);
 
-        const read = read_buffer[0..read_n];
-        // TODO: length checks etc. Ringbuffer?
-        const message: NetMessage = std.mem.bytesToValue(NetMessage, read);
-        std.log.info("event {}", .{message});
+        while (true) {
+            var read_buffer_ring = [_]u8{0} ** @sizeOf(NetMessage);
+            ring.readFirst(&read_buffer_ring, @sizeOf(NetMessage)) catch break;
+            const message: NetMessage = std.mem.bytesToValue(NetMessage, &read_buffer_ring);
+            std.log.info("event {}", .{message});
 
-        var date: [256:0]u8 = undefined;
-        const date_str = fill_string_from_timestamp_ms(message.timestamp_ms, &date);
+            var date: [256:0]u8 = undefined;
+            const date_str = fill_string_from_timestamp_ms(message.timestamp_ms, &date);
 
-        const writer = event_file.writer();
-        try std.fmt.format(writer, "{s} {}\n", .{ date_str, message.duration_ms });
+            const writer = event_file.writer();
+            try std.fmt.format(writer, "{s} {}\n", .{ date_str, message.duration_ms });
+        }
     }
 }
 
