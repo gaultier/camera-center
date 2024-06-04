@@ -17,7 +17,7 @@ pub const NetMessage = packed struct {
 
 const VIDEO_FILE_DURATION_SECONDS = 1 * std.time.s_per_min;
 const CLEANER_FREQUENCY_SECONDS = 1 * std.time.s_per_min;
-const VIDEO_FILE_MAX_RETAIN_DURATION_SECONDS = 1 * std.time.s_per_week;
+const VIDEO_FILE_MAX_RETAIN_DURATION_SECONDS = 7 * std.time.s_per_day;
 
 fn handle_tcp_connection_for_incoming_events(connection: *std.net.Server.Connection) !void {
     var event_file = try std.fs.cwd().openFile("events.txt", .{ .mode = .write_only });
