@@ -66,6 +66,7 @@ fn send_message(socket: *std.posix.socket_t, address: *const std.net.Address, me
     const message_bytes = std.mem.asBytes(message);
 
     if (std.posix.write(socket.*, message_bytes)) |sent| {
+        // TODO: handle partial write.
         std.log.debug("sent {} {}", .{ sent, message });
     } else |err| switch (err) {
         error.BrokenPipe => {
