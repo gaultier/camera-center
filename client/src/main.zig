@@ -87,6 +87,8 @@ fn create_tcp_socket(address: *const std.net.Address) !std.posix.socket_t {
     };
     tcp_connect_retry_forever(&socket, address);
 
+    std.log.info("(re)created tcp socket", .{});
+
     return socket;
 }
 
