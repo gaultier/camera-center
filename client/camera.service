@@ -1,0 +1,7 @@
+[Unit]
+Description=Camera client
+
+
+[Service]
+ExecStart=/home/pg/start.sh 192.168.1.129 12345
+Restart=on-failure
