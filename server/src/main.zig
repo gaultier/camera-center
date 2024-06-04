@@ -20,7 +20,7 @@ const CLEANER_FREQUENCY_SECONDS = 1 * std.time.s_per_min;
 const VIDEO_FILE_MAX_RETAIN_DURATION_SECONDS = 1 * std.time.s_per_week;
 
 fn handle_tcp_connection_for_incoming_events(connection: *std.net.Server.Connection) !void {
-    var event_file = try std.fs.cwd().createFile("events.txt", .{});
+    var event_file = try std.fs.cwd().openFile("events.txt", .{ .mode = .write_only });
     try event_file.seekFromEnd(0);
 
     while (true) {
