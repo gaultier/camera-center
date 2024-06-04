@@ -83,9 +83,13 @@ fn handle_timer_trigger(fd: i32, video_file: *std.fs.File) !void {
 // Perhaps from the mpegts metadata?
 fn listen_udp_for_incoming_video_data() !void {
     const udp_socket = try std.posix.socket(std.posix.AF.INET, std.posix.SOCK.DGRAM, 0);
+
     try std.posix.setsockopt(udp_socket, std.posix.SOL.SOCKET, std.posix.SO.REUSEPORT, std.mem.sliceAsBytes(&[1]u32{1}));
     try std.posix.setsockopt(udp_socket, std.posix.SOL.SOCKET, std.posix.SO.REUSEADDR, std.mem.sliceAsBytes(&[1]u32{1}));
     const address = std.net.Address.parseIp4("239.0.0.1", 12345) catch unreachable;
+    // Enter broadcast group.
+    try std.posix.setsockopt(udp_socket, std.posix.SOL.IP, std.os.linux.IP.ADD_MEMBERSHIP, std.mem.sliceAsBytes(&[2]u32{ address.in.sa.addr, 0 }));
+
     try std.posix.bind(udp_socket, &address.any, address.getOsSockLen());
 
     var video_file = try create_video_file();
