@@ -59,7 +59,13 @@ fn handle_tcp_connection_for_incoming_events(connection: *std.net.Server.Connect
 fn handle_tcp_connection_for_viewer(connection: *std.net.Server.Connection, viewers: *std.ArrayList(std.posix.socket_t), viewers_mtx: *std.Thread.Mutex) !void {
     viewers_mtx.lock();
     try viewers.append(connection.stream.handle);
+    std.log.debug("added viewer {}", .{viewers.items.len});
     viewers_mtx.unlock();
+}
+
+fn remove_viewer(viewers: *std.ArrayList(std.posix.socket_t), at: usize) void {
+    std.posix.close(viewers.swapRemove(at));
+    std.log.info("removed viewer {} ({} remaining)", .{ at, viewers.items.len });
 }
 
 fn handle_udp_packet(in: std.posix.socket_t, out: std.fs.File, viewers: *std.ArrayList(std.posix.socket_t), viewers_mtx: *std.Thread.Mutex) void {
@@ -72,10 +78,13 @@ fn handle_udp_packet(in: std.posix.socket_t, out: std.fs.File, viewers: *std.Arr
         };
 
         viewers_mtx.lock();
-        for (viewers.items) |viewer| {
+        for (viewers.items, 0..) |viewer, i| {
             // TODO: Non-blocking?
-            if (std.posix.write(viewer, read_buffer[0..n_read])) |_| {} else |err| {
-                std.log.err("failed to write to broadcast socket {}", .{err});
+            if (std.posix.write(viewer, read_buffer[0..n_read])) |n_written| {
+                std.log.debug("written data for viewer {}", .{n_written});
+            } else |err| switch (err) {
+                error.BrokenPipe => remove_viewer(viewers, i),
+                else => std.log.err("failed to write data for viewer {}", .{err}),
             }
         }
         viewers_mtx.unlock();
@@ -173,13 +182,10 @@ fn listen_tcp_for_viewers(viewers: *std.ArrayList(std.posix.socket_t), viewers_m
 
     while (true) {
         var connection = try server.accept();
-        std.log.warn("new viewer accepted", .{});
-        const pid = try std.posix.fork();
-        if (pid > 0) { // Parent.
-            continue;
-        }
-        // Child
-        try handle_tcp_connection_for_viewer(&connection, viewers, viewers_mtx);
+        std.log.info("new viewer accepted", .{});
+        var viewer_handler_thread = try std.Thread.spawn(.{}, handle_tcp_connection_for_viewer, .{ &connection, viewers, viewers_mtx });
+        try viewer_handler_thread.setName("viewer_handler");
+        viewer_handler_thread.detach();
     }
 }
 
