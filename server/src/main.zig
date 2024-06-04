@@ -56,7 +56,13 @@ fn handle_tcp_connection_for_incoming_events(connection: *std.net.Server.Connect
     }
 }
 
-fn handle_udp_packet(in: std.posix.socket_t, out: std.fs.File) void {
+fn handle_tcp_connection_for_viewer(connection: *std.net.Server.Connection, viewers: *std.ArrayList(std.posix.socket_t), viewers_mtx: *std.Thread.Mutex) !void {
+    viewers_mtx.lock();
+    try viewers.append(connection.stream.handle);
+    viewers_mtx.unlock();
+}
+
+fn handle_udp_packet(in: std.posix.socket_t, out: std.fs.File, viewers: *std.ArrayList(std.posix.socket_t), viewers_mtx: *std.Thread.Mutex) void {
     var read_buffer = [_]u8{0} ** 4096;
     if (std.posix.read(in, &read_buffer)) |n_read| {
         std.log.debug("udp read={}", .{n_read});
@@ -64,6 +70,15 @@ fn handle_udp_packet(in: std.posix.socket_t, out: std.fs.File) void {
         out.writeAll(read_buffer[0..n_read]) catch |err| {
             std.log.err("failed to write all to file {}", .{err});
         };
+
+        viewers_mtx.lock();
+        for (viewers.items) |viewer| {
+            // TODO: Non-blocking?
+            if (std.posix.write(viewer, read_buffer[0..n_read])) |_| {} else |err| {
+                std.log.err("failed to write to broadcast socket {}", .{err});
+            }
+        }
+        viewers_mtx.unlock();
     } else |err| {
         std.log.err("failed to read udp {}", .{err});
     }
@@ -92,14 +107,12 @@ fn handle_timer_trigger(fd: i32, video_file: *std.fs.File) !void {
 
 // TODO: For multiple cameras we need to identify which stream it is.
 // Perhaps from the mpegts metadata?
-fn listen_udp_for_incoming_video_data() !void {
+fn listen_udp_for_incoming_video_data(viewers: *std.ArrayList(std.posix.socket_t), viewers_mtx: *std.Thread.Mutex) !void {
     const socket = try std.posix.socket(std.posix.AF.INET, std.posix.SOCK.DGRAM, 0);
-    const address = std.net.Address.parseIp4("239.0.0.1", 12345) catch unreachable;
+    const address = std.net.Address.parseIp4("0.0.0.0", 12345) catch unreachable;
 
     try std.posix.setsockopt(socket, std.posix.SOL.SOCKET, std.posix.SO.REUSEPORT, std.mem.sliceAsBytes(&[1]u32{1}));
     try std.posix.setsockopt(socket, std.posix.SOL.SOCKET, std.posix.SO.REUSEADDR, std.mem.sliceAsBytes(&[1]u32{1}));
-    // Enter broadcast group.
-    try std.posix.setsockopt(socket, std.posix.SOL.IP, std.os.linux.IP.ADD_MEMBERSHIP, std.mem.sliceAsBytes(&[2]u32{ address.in.sa.addr, 0 }));
 
     try std.posix.bind(socket, &address.any, address.getOsSockLen());
 
@@ -130,7 +143,7 @@ fn listen_udp_for_incoming_video_data() !void {
         // TODO: Handle `POLL.ERR`.
 
         if ((poll_fds[0].revents & std.posix.POLL.IN) != 0) {
-            handle_udp_packet(poll_fds[0].fd, video_file);
+            handle_udp_packet(poll_fds[0].fd, video_file, viewers, viewers_mtx);
         } else if ((poll_fds[1].revents & std.posix.POLL.IN) != 0) {
             try handle_timer_trigger(poll_fds[1].fd, &video_file);
         } else {
@@ -151,6 +164,22 @@ fn listen_tcp_for_incoming_events() !void {
         }
         // Child
         try handle_tcp_connection_for_incoming_events(&connection);
+    }
+}
+
+fn listen_tcp_for_viewers(viewers: *std.ArrayList(std.posix.socket_t), viewers_mtx: *std.Thread.Mutex) !void {
+    const address = std.net.Address.parseIp4("0.0.0.0", 12346) catch unreachable;
+    var server = try std.net.Address.listen(address, .{ .reuse_address = true });
+
+    while (true) {
+        var connection = try server.accept();
+        std.log.warn("new viewer accepted", .{});
+        const pid = try std.posix.fork();
+        if (pid > 0) { // Parent.
+            continue;
+        }
+        // Child
+        try handle_tcp_connection_for_viewer(&connection, viewers, viewers_mtx);
     }
 }
 
@@ -209,11 +238,21 @@ fn fill_string_from_timestamp_ms(timestamp_ms: i64, out: *[256:0]u8) [:0]u8 {
 }
 
 pub fn main() !void {
-    var listen_udp_for_incoming_video_data_thread = try std.Thread.spawn(.{}, listen_udp_for_incoming_video_data, .{});
+    var mem = [_]u8{0} ** 4096;
+    var fixed_buffer_allocator = std.heap.FixedBufferAllocator.init(&mem);
+    const allocator = fixed_buffer_allocator.allocator();
+
+    var viewers = std.ArrayList(std.posix.socket_t).init(allocator);
+    var viewers_mtx = std.Thread.Mutex{};
+
+    var listen_udp_for_incoming_video_data_thread = try std.Thread.spawn(.{}, listen_udp_for_incoming_video_data, .{ &viewers, &viewers_mtx });
     try listen_udp_for_incoming_video_data_thread.setName("incoming_video");
 
     var run_delete_old_video_files_forever_thread = try std.Thread.spawn(.{}, run_delete_old_video_files_forever, .{});
     try run_delete_old_video_files_forever_thread.setName("delete_old");
+
+    var listen_tcp_for_viewers_thread = try std.Thread.spawn(.{}, listen_tcp_for_viewers, .{ &viewers, &viewers_mtx });
+    try listen_tcp_for_viewers_thread.setName("listen_viewers");
 
     try listen_tcp_for_incoming_events();
 }
