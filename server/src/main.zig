@@ -45,28 +45,7 @@ fn handle_tcp_connection_for_incoming_events(connection: *std.net.Server.Connect
     }
 }
 
-fn handle_tcp_connection_for_viewer(connection: *std.net.Server.Connection, local_broadcast_socket: std.posix.socket_t) !void {
-    std.log.info("new viewer", .{});
-
-    while (true) {
-        var read_buf = [_]u8{0} ** 4096;
-
-        if (std.posix.read(local_broadcast_socket, &read_buf)) |n_read| {
-            std.log.info("video data read from broadcast socket {}", .{n_read});
-
-            if (connection.stream.writeAll(read_buf[0..n_read])) |n_written| {
-                std.log.debug("written to viewer {}", .{n_written});
-            } else |err| switch (err) {
-                error.BrokenPipe => return,
-                else => std.log.err("sendfile err {}", .{err}),
-            }
-        } else |err| {
-            std.log.err("read err {}", .{err});
-        }
-    }
-}
-
-fn handle_udp_packet(in: std.posix.socket_t, out: std.fs.File, local_broadcast_socket: std.posix.socket_t) void {
+fn handle_udp_packet(in: std.posix.socket_t, out: std.fs.File) void {
     var read_buffer = [_]u8{0} ** 4096;
     if (std.posix.read(in, &read_buffer)) |n_read| {
         std.log.debug("udp read={}", .{n_read});
@@ -74,9 +53,6 @@ fn handle_udp_packet(in: std.posix.socket_t, out: std.fs.File, local_broadcast_s
         out.writeAll(read_buffer[0..n_read]) catch |err| {
             std.log.err("failed to write all to file {}", .{err});
         };
-        if (std.posix.write(local_broadcast_socket, read_buffer[0..n_read])) |_| {} else |err| {
-            std.log.err("failed to write to broadcast socket {}", .{err});
-        }
     } else |err| {
         std.log.err("failed to read udp {}", .{err});
     }
@@ -105,9 +81,9 @@ fn handle_timer_trigger(fd: i32, video_file: *std.fs.File) !void {
 
 // TODO: For multiple cameras we need to identify which stream it is.
 // Perhaps from the mpegts metadata?
-fn listen_udp_for_incoming_video_data(local_broadcast_socket: std.posix.socket_t) !void {
+fn listen_udp_for_incoming_video_data() !void {
     const udp_socket = try std.posix.socket(std.posix.AF.INET, std.posix.SOCK.DGRAM, 0);
-    const address = std.net.Address.parseIp4("0.0.0.0", 12345) catch unreachable;
+    const address = std.net.Address.parseIp4("239.0.0.1", 12345) catch unreachable;
     try std.posix.bind(udp_socket, &address.any, address.getOsSockLen());
 
     var video_file = try create_video_file();
@@ -137,7 +113,7 @@ fn listen_udp_for_incoming_video_data(local_broadcast_socket: std.posix.socket_t
         // TODO: Handle `POLL.ERR`.
 
         if ((poll_fds[0].revents & std.posix.POLL.IN) != 0) {
-            handle_udp_packet(poll_fds[0].fd, video_file, local_broadcast_socket);
+            handle_udp_packet(poll_fds[0].fd, video_file);
         } else if ((poll_fds[1].revents & std.posix.POLL.IN) != 0) {
             try handle_timer_trigger(poll_fds[1].fd, &video_file);
         } else {
@@ -215,44 +191,12 @@ fn fill_string_from_timestamp_ms(timestamp_ms: i64, out: *[256:0]u8) [:0]u8 {
     return out.*[0..res :0];
 }
 
-fn listen_tcp_for_viewers(local_broadcast_socket: std.posix.socket_t) void {
-    const address = std.net.Address.parseIp4("0.0.0.0", 12346) catch unreachable;
-    var server = std.net.Address.listen(address, .{ .reuse_address = true }) catch |err| {
-        std.log.err("failed to tcp listen {}", .{err});
-        return;
-    };
-
-    while (true) {
-        var connection = server.accept() catch |err| {
-            std.log.err("failed to tcp accept {}", .{err});
-            continue;
-        };
-        const pid = std.posix.fork() catch |err| {
-            std.log.err("failed to fork {}", .{err});
-            @panic("failed to fork");
-        };
-        if (pid > 0) { // Parent.
-            continue;
-        }
-        // Child
-        handle_tcp_connection_for_viewer(&connection, local_broadcast_socket) catch {};
-    }
-}
-
 pub fn main() !void {
-    const local_broadcast_socket = try std.posix.socket(std.posix.AF.INET, std.posix.SOCK.DGRAM, 0);
-    const address = std.net.Address.parseIp4("127.255.255.255", 12346) catch unreachable;
-    try std.posix.setsockopt(local_broadcast_socket, std.posix.SOL.SOCKET, std.posix.SO.BROADCAST, std.mem.sliceAsBytes(&[1]u32{1}));
-    try std.posix.connect(local_broadcast_socket, &address.any, address.getOsSockLen());
-
-    var listen_udp_for_incoming_video_data_thread = try std.Thread.spawn(.{}, listen_udp_for_incoming_video_data, .{local_broadcast_socket});
+    var listen_udp_for_incoming_video_data_thread = try std.Thread.spawn(.{}, listen_udp_for_incoming_video_data, .{});
     try listen_udp_for_incoming_video_data_thread.setName("incoming_video");
 
     var run_delete_old_video_files_forever_thread = try std.Thread.spawn(.{}, run_delete_old_video_files_forever, .{});
     try run_delete_old_video_files_forever_thread.setName("delete_old");
-
-    var listen_tcp_for_viewers_thread = try std.Thread.spawn(.{}, listen_tcp_for_viewers, .{local_broadcast_socket});
-    try listen_tcp_for_viewers_thread.setName("listen_viewers");
 
     try listen_tcp_for_incoming_events();
 }
