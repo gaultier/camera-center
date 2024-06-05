@@ -56,19 +56,7 @@ fn handle_tcp_connection_for_incoming_events(connection: *std.net.Server.Connect
     }
 }
 
-fn handle_tcp_connection_for_viewer(connection: *std.net.Server.Connection, viewers: *std.ArrayList(std.posix.socket_t), viewers_mtx: *std.Thread.Mutex) !void {
-    viewers_mtx.lock();
-    try viewers.append(connection.stream.handle);
-    std.log.debug("added viewer {}", .{viewers.items.len});
-    viewers_mtx.unlock();
-}
-
-fn remove_viewer(viewers: *std.ArrayList(std.posix.socket_t), at: usize) void {
-    std.posix.close(viewers.swapRemove(at));
-    std.log.info("removed viewer {} ({} remaining)", .{ at, viewers.items.len });
-}
-
-fn handle_udp_packet(in: std.posix.socket_t, out: std.fs.File, viewers: *std.ArrayList(std.posix.socket_t), viewers_mtx: *std.Thread.Mutex) void {
+fn handle_udp_packet(in: std.posix.socket_t, out: std.fs.File, viewer_socket: std.posix.socket_t) void {
     var read_buffer = [_]u8{0} ** 4096;
     if (std.posix.read(in, &read_buffer)) |n_read| {
         std.log.debug("udp read={}", .{n_read});
@@ -76,18 +64,9 @@ fn handle_udp_packet(in: std.posix.socket_t, out: std.fs.File, viewers: *std.Arr
         out.writeAll(read_buffer[0..n_read]) catch |err| {
             std.log.err("failed to write all to file {}", .{err});
         };
-
-        viewers_mtx.lock();
-        for (viewers.items, 0..) |viewer, i| {
-            // TODO: Non-blocking?
-            if (std.posix.write(viewer, read_buffer[0..n_read])) |n_written| {
-                std.log.debug("written data for viewer {}", .{n_written});
-            } else |err| switch (err) {
-                error.BrokenPipe => remove_viewer(viewers, i),
-                else => std.log.err("failed to write data for viewer {}", .{err}),
-            }
-        }
-        viewers_mtx.unlock();
+        _ = std.posix.write(viewer_socket, read_buffer[0..n_read]) catch |err| {
+            std.log.err("failed to write to viewer {}", .{err});
+        };
     } else |err| {
         std.log.err("failed to read udp {}", .{err});
     }
@@ -116,14 +95,14 @@ fn handle_timer_trigger(fd: i32, video_file: *std.fs.File) !void {
 
 // TODO: For multiple cameras we need to identify which stream it is.
 // Perhaps from the mpegts metadata?
-fn listen_udp_for_incoming_video_data(viewers: *std.ArrayList(std.posix.socket_t), viewers_mtx: *std.Thread.Mutex) !void {
+fn listen_udp_for_incoming_video_data() !void {
     const socket = try std.posix.socket(std.posix.AF.INET, std.posix.SOCK.DGRAM, 0);
     const address = std.net.Address.parseIp4("0.0.0.0", 12345) catch unreachable;
-
-    try std.posix.setsockopt(socket, std.posix.SOL.SOCKET, std.posix.SO.REUSEPORT, std.mem.sliceAsBytes(&[1]u32{1}));
-    try std.posix.setsockopt(socket, std.posix.SOL.SOCKET, std.posix.SO.REUSEADDR, std.mem.sliceAsBytes(&[1]u32{1}));
-
     try std.posix.bind(socket, &address.any, address.getOsSockLen());
+
+    const viewer_socket = try std.posix.socket(std.posix.AF.INET, std.posix.SOCK.DGRAM, 0);
+    const viewer_address = std.net.Address.parseIp4("192.168.1.104", 12345) catch unreachable;
+    try std.posix.connect(viewer_socket, &viewer_address.any, viewer_address.getOsSockLen());
 
     var video_file = try create_video_file();
 
@@ -152,7 +131,7 @@ fn listen_udp_for_incoming_video_data(viewers: *std.ArrayList(std.posix.socket_t
         // TODO: Handle `POLL.ERR`.
 
         if ((poll_fds[0].revents & std.posix.POLL.IN) != 0) {
-            handle_udp_packet(poll_fds[0].fd, video_file, viewers, viewers_mtx);
+            handle_udp_packet(poll_fds[0].fd, video_file, viewer_socket);
         } else if ((poll_fds[1].revents & std.posix.POLL.IN) != 0) {
             try handle_timer_trigger(poll_fds[1].fd, &video_file);
         } else {
@@ -173,18 +152,6 @@ fn listen_tcp_for_incoming_events() !void {
         }
         // Child
         try handle_tcp_connection_for_incoming_events(&connection);
-    }
-}
-
-fn listen_tcp_for_viewers(viewers: *std.ArrayList(std.posix.socket_t), viewers_mtx: *std.Thread.Mutex) !void {
-    const address = std.net.Address.parseIp4("0.0.0.0", 12346) catch unreachable;
-    var server = try std.net.Address.listen(address, .{ .reuse_address = true });
-
-    while (true) {
-        var connection = try server.accept();
-        std.log.info("new viewer accepted", .{});
-        var viewer_handler_thread = try std.Thread.spawn(.{}, handle_tcp_connection_for_viewer, .{ &connection, viewers, viewers_mtx });
-        viewer_handler_thread.detach();
     }
 }
 
@@ -243,21 +210,11 @@ fn fill_string_from_timestamp_ms(timestamp_ms: i64, out: *[256:0]u8) [:0]u8 {
 }
 
 pub fn main() !void {
-    var mem = [_]u8{0} ** 4096;
-    var fixed_buffer_allocator = std.heap.FixedBufferAllocator.init(&mem);
-    const allocator = fixed_buffer_allocator.allocator();
-
-    var viewers = std.ArrayList(std.posix.socket_t).init(allocator);
-    var viewers_mtx = std.Thread.Mutex{};
-
-    var listen_udp_for_incoming_video_data_thread = try std.Thread.spawn(.{}, listen_udp_for_incoming_video_data, .{ &viewers, &viewers_mtx });
+    var listen_udp_for_incoming_video_data_thread = try std.Thread.spawn(.{}, listen_udp_for_incoming_video_data, .{});
     try listen_udp_for_incoming_video_data_thread.setName("incoming_video");
 
     var run_delete_old_video_files_forever_thread = try std.Thread.spawn(.{}, run_delete_old_video_files_forever, .{});
     try run_delete_old_video_files_forever_thread.setName("delete_old");
-
-    var listen_tcp_for_viewers_thread = try std.Thread.spawn(.{}, listen_tcp_for_viewers, .{ &viewers, &viewers_mtx });
-    try listen_tcp_for_viewers_thread.setName("listen_viewers");
 
     try listen_tcp_for_incoming_events();
 }
