@@ -57,16 +57,18 @@ fn handle_tcp_connection_for_incoming_events(connection: *std.net.Server.Connect
 }
 
 fn handle_udp_packet(in: std.posix.socket_t, out: std.fs.File, viewer_socket: std.posix.socket_t) void {
+    _ = viewer_socket;
+
     var read_buffer = [_]u8{0} ** 4096;
     if (std.posix.read(in, &read_buffer)) |n_read| {
-        std.log.debug("udp read={}", .{n_read});
+        // std.log.warn("udp read={}", .{n_read});
 
         out.writeAll(read_buffer[0..n_read]) catch |err| {
             std.log.err("failed to write all to file {}", .{err});
         };
-        _ = std.posix.write(viewer_socket, read_buffer[0..n_read]) catch |err| {
-            std.log.err("failed to write to viewer {}", .{err});
-        };
+        // _ = std.posix.write(viewer_socket, read_buffer[0..n_read]) catch |err| {
+        //     std.log.err("failed to write to viewer {}", .{err});
+        // };
     } else |err| {
         std.log.err("failed to read udp {}", .{err});
     }
@@ -101,7 +103,7 @@ fn listen_udp_for_incoming_video_data() !void {
     try std.posix.bind(socket, &address.any, address.getOsSockLen());
 
     const viewer_socket = try std.posix.socket(std.posix.AF.INET, std.posix.SOCK.DGRAM, 0);
-    const viewer_address = std.net.Address.parseIp4("192.168.1.104", 12345) catch unreachable;
+    const viewer_address = std.net.Address.parseIp4("100.64.152.16", 12346) catch unreachable;
     try std.posix.connect(viewer_socket, &viewer_address.any, viewer_address.getOsSockLen());
 
     var video_file = try create_video_file();
