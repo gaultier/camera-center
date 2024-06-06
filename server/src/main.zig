@@ -73,6 +73,7 @@ fn handle_udp_packet(in: std.posix.socket_t, out: std.fs.File, viewers: []Viewer
             std.log.err("failed to write all to file {}", .{err});
         };
 
+        // TODO: Should it be in another thread/process?
         for (viewers) |*viewer| {
             viewer.ring.writeSliceAssumeCapacity(read_buffer[0..n_read]);
 
