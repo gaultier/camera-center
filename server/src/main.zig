@@ -142,8 +142,8 @@ fn listen_udp_for_incoming_video_data() !void {
 
     var video_file = try create_video_file();
 
-    const timer_new_file = try std.posix.timerfd_create(std.posix.CLOCK.MONOTONIC, .{});
-    try std.posix.timerfd_settime(timer_new_file, .{}, &.{
+    const timer_new_video_file = try std.posix.timerfd_create(std.posix.CLOCK.MONOTONIC, .{});
+    try std.posix.timerfd_settime(timer_new_video_file, .{}, &.{
         .it_value = .{ .tv_sec = VIDEO_FILE_DURATION_SECONDS, .tv_nsec = 0 },
         .it_interval = .{ .tv_sec = VIDEO_FILE_DURATION_SECONDS, .tv_nsec = 0 },
     }, null);
@@ -153,7 +153,7 @@ fn listen_udp_for_incoming_video_data() !void {
         .events = std.posix.POLL.IN,
         .revents = 0,
     }, .{
-        .fd = timer_new_file,
+        .fd = timer_new_video_file,
         .events = std.posix.POLL.IN,
         .revents = 0,
     } };
@@ -164,14 +164,12 @@ fn listen_udp_for_incoming_video_data() !void {
             continue;
         };
 
-        // TODO: Handle `POLL.ERR`.
+        // TODO: Handle `POLL.ERR` ?
 
         if ((poll_fds[0].revents & std.posix.POLL.IN) != 0) {
             handle_video_data_udp_packet(poll_fds[0].fd, video_file, &viewers);
         } else if ((poll_fds[1].revents & std.posix.POLL.IN) != 0) {
             try switch_to_new_video_file(poll_fds[1].fd, &video_file);
-        } else {
-            std.time.sleep(5 * std.time.ns_per_ms);
         }
     }
 }
