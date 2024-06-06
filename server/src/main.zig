@@ -116,8 +116,8 @@ fn create_video_file() !std.fs.File {
     return file;
 }
 
-fn handle_timer_trigger(fd: i32, video_file: *std.fs.File) !void {
-    std.log.debug("timer triggered", .{});
+fn switch_to_new_video_file(fd: i32, video_file: *std.fs.File) !void {
+    // Read & ignore the timer value.
     var read_buffer = [_]u8{0} ** 8;
     std.debug.assert(std.posix.read(fd, &read_buffer) catch 0 == 8);
 
@@ -169,7 +169,7 @@ fn listen_udp_for_incoming_video_data() !void {
         if ((poll_fds[0].revents & std.posix.POLL.IN) != 0) {
             handle_video_data_udp_packet(poll_fds[0].fd, video_file, &viewers);
         } else if ((poll_fds[1].revents & std.posix.POLL.IN) != 0) {
-            try handle_timer_trigger(poll_fds[1].fd, &video_file);
+            try switch_to_new_video_file(poll_fds[1].fd, &video_file);
         } else {
             std.time.sleep(5 * std.time.ns_per_ms);
         }
