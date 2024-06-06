@@ -18,6 +18,7 @@ pub const NetMessage = packed struct {
 const VIDEO_FILE_DURATION_SECONDS = 1 * std.time.s_per_min;
 const CLEANER_FREQUENCY_SECONDS = 1 * std.time.s_per_min;
 const VIDEO_FILE_MAX_RETAIN_DURATION_SECONDS = 7 * std.time.s_per_day;
+const VLC_UDP_PACKET_SIZE = 1316;
 
 fn handle_tcp_connection_for_incoming_events(connection: *std.net.Server.Connection) !void {
     var event_file = try std.fs.cwd().openFile("events.txt", .{ .mode = .write_only });
@@ -67,9 +68,9 @@ fn handle_udp_packet(in: std.posix.socket_t, out: std.fs.File, viewer_socket: st
         viewer_ring.writeSliceAssumeCapacity(read_buffer[0..n_read]);
 
         while (!viewer_ring.isEmpty()) {
-            var read_buffer_ring = [_]u8{0} ** 1316;
-            viewer_ring.readFirst(&read_buffer_ring, 1316) catch break;
-            _ = std.posix.write(viewer_socket, read_buffer_ring[0..1316]) catch |err| {
+            var read_buffer_ring = [_]u8{0} ** VLC_UDP_PACKET_SIZE;
+            viewer_ring.readFirst(&read_buffer_ring, VLC_UDP_PACKET_SIZE) catch break;
+            _ = std.posix.write(viewer_socket, read_buffer_ring[0..VLC_UDP_PACKET_SIZE]) catch |err| {
                 std.log.err("failed to write to viewer {}", .{err});
             };
         }
