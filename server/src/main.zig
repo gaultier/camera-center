@@ -56,9 +56,7 @@ fn handle_tcp_connection_for_incoming_events(connection: *std.net.Server.Connect
     }
 }
 
-fn handle_udp_packet(in: std.posix.socket_t, out: std.fs.File, viewer_socket: std.posix.socket_t) void {
-    _ = viewer_socket;
-
+fn handle_udp_packet(in: std.posix.socket_t, out: std.fs.File, viewer_socket: std.posix.socket_t, viewer_ring: *std.RingBuffer) void {
     var read_buffer = [_]u8{0} ** 4096;
     if (std.posix.read(in, &read_buffer)) |n_read| {
         // std.log.warn("udp read={}", .{n_read});
@@ -66,9 +64,15 @@ fn handle_udp_packet(in: std.posix.socket_t, out: std.fs.File, viewer_socket: st
         out.writeAll(read_buffer[0..n_read]) catch |err| {
             std.log.err("failed to write all to file {}", .{err});
         };
-        // _ = std.posix.write(viewer_socket, read_buffer[0..n_read]) catch |err| {
-        //     std.log.err("failed to write to viewer {}", .{err});
-        // };
+        viewer_ring.writeSliceAssumeCapacity(read_buffer[0..n_read]);
+
+        while (!viewer_ring.isEmpty()) {
+            var read_buffer_ring = [_]u8{0} ** 1316;
+            viewer_ring.readFirst(&read_buffer_ring, 1316) catch break;
+            _ = std.posix.write(viewer_socket, read_buffer_ring[0..1316]) catch |err| {
+                std.log.err("failed to write to viewer {}", .{err});
+            };
+        }
     } else |err| {
         std.log.err("failed to read udp {}", .{err});
     }
@@ -106,6 +110,11 @@ fn listen_udp_for_incoming_video_data() !void {
     const viewer_address = std.net.Address.parseIp4("100.64.152.16", 12346) catch unreachable;
     try std.posix.connect(viewer_socket, &viewer_address.any, viewer_address.getOsSockLen());
 
+    var mem = [_]u8{0} ** 8192;
+    var fixed_buffer_allocator = std.heap.FixedBufferAllocator.init(&mem);
+    const allocator = fixed_buffer_allocator.allocator();
+    var viewer_ring = try std.RingBuffer.init(allocator, 4096);
+
     var video_file = try create_video_file();
 
     const timer_new_file = try std.posix.timerfd_create(std.posix.CLOCK.MONOTONIC, .{});
@@ -133,7 +142,7 @@ fn listen_udp_for_incoming_video_data() !void {
         // TODO: Handle `POLL.ERR`.
 
         if ((poll_fds[0].revents & std.posix.POLL.IN) != 0) {
-            handle_udp_packet(poll_fds[0].fd, video_file, viewer_socket);
+            handle_udp_packet(poll_fds[0].fd, video_file, viewer_socket, &viewer_ring);
         } else if ((poll_fds[1].revents & std.posix.POLL.IN) != 0) {
             try handle_timer_trigger(poll_fds[1].fd, &video_file);
         } else {
