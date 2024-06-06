@@ -27,6 +27,9 @@ const Viewer = struct {
 
 const VIEWERS_COUNT = 1;
 const Viewers = [VIEWERS_COUNT]Viewer;
+const VIEWER_ADDRESSES = [VIEWERS_COUNT]std.net.Address{
+    std.net.Address.parseIp4("100.64.152.16", 12346) catch unreachable,
+};
 
 fn handle_tcp_connection_for_incoming_events(connection: *std.net.Server.Connection) !void {
     var event_file = try std.fs.cwd().openFile("events.txt", .{ .mode = .write_only });
@@ -114,7 +117,7 @@ fn handle_timer_trigger(fd: i32, video_file: *std.fs.File) !void {
 
 // TODO: For multiple cameras we need to identify which stream it is.
 // Perhaps from the mpegts metadata?
-fn listen_udp_for_incoming_video_data(viewer_addresses: [VIEWERS_COUNT]std.net.Address) !void {
+fn listen_udp_for_incoming_video_data() !void {
     const socket = try std.posix.socket(std.posix.AF.INET, std.posix.SOCK.DGRAM, 0);
     const address = std.net.Address.parseIp4("0.0.0.0", 12345) catch unreachable;
     try std.posix.bind(socket, &address.any, address.getOsSockLen());
@@ -124,11 +127,11 @@ fn listen_udp_for_incoming_video_data(viewer_addresses: [VIEWERS_COUNT]std.net.A
     const allocator = fixed_buffer_allocator.allocator();
 
     var viewers = Viewers{undefined};
-    comptime std.debug.assert(viewer_addresses.len == viewers.len);
+    comptime std.debug.assert(VIEWER_ADDRESSES.len == viewers.len);
 
     for (&viewers, 0..) |*viewer, i| {
         viewer.socket = try std.posix.socket(std.posix.AF.INET, std.posix.SOCK.DGRAM, 0);
-        try std.posix.connect(viewer.socket, &viewer_addresses[i].any, viewer_addresses[i].getOsSockLen());
+        try std.posix.connect(viewer.socket, &VIEWER_ADDRESSES[i].any, VIEWER_ADDRESSES[i].getOsSockLen());
         viewer.ring = try std.RingBuffer.init(allocator, 4096);
     }
 
@@ -238,12 +241,9 @@ fn fill_string_from_timestamp_ms(timestamp_ms: i64, out: *[256:0]u8) [:0]u8 {
 }
 
 pub fn main() !void {
-    const viewer_addresses = [VIEWERS_COUNT]std.net.Address{
-        comptime std.net.Address.parseIp4("100.64.152.16", 12346) catch unreachable,
-    };
-    std.log.info("viewers {any}", .{viewer_addresses});
+    std.log.info("viewers {any}", .{VIEWER_ADDRESSES});
 
-    var listen_udp_for_incoming_video_data_thread = try std.Thread.spawn(.{}, listen_udp_for_incoming_video_data, .{viewer_addresses});
+    var listen_udp_for_incoming_video_data_thread = try std.Thread.spawn(.{}, listen_udp_for_incoming_video_data, .{});
     try listen_udp_for_incoming_video_data_thread.setName("incoming_video");
 
     var run_delete_old_video_files_forever_thread = try std.Thread.spawn(.{}, run_delete_old_video_files_forever, .{});
