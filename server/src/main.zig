@@ -20,6 +20,8 @@ const CLEANER_FREQUENCY_SECONDS = 1 * std.time.s_per_min;
 const VIDEO_FILE_MAX_RETAIN_DURATION_SECONDS = 7 * std.time.s_per_day;
 const VLC_UDP_PACKET_SIZE = 1316;
 
+const VIEWER_ADDRESSES = [_]std.net.Address{std.net.Address.parseIp4("100.64.152.16", 12346) catch unreachable};
+
 fn handle_tcp_connection_for_incoming_events(connection: *std.net.Server.Connection) !void {
     var event_file = try std.fs.cwd().openFile("events.txt", .{ .mode = .write_only });
     try event_file.seekFromEnd(0);
@@ -106,6 +108,15 @@ fn listen_udp_for_incoming_video_data() !void {
     const socket = try std.posix.socket(std.posix.AF.INET, std.posix.SOCK.DGRAM, 0);
     const address = std.net.Address.parseIp4("0.0.0.0", 12345) catch unreachable;
     try std.posix.bind(socket, &address.any, address.getOsSockLen());
+
+    const viewers = init_viewers: {
+        for (&VIEWER_ADDRESSES) |*viewer_address| {
+            const viewer_socket = try std.posix.socket(std.posix.AF.INET, std.posix.SOCK.DGRAM, 0);
+            try std.posix.connect(viewer_socket, &viewer_address.any, viewer_address.getOsSockLen());
+        }
+        break :init_viewers;
+    };
+    _ = viewers;
 
     const viewer_socket = try std.posix.socket(std.posix.AF.INET, std.posix.SOCK.DGRAM, 0);
     const viewer_address = std.net.Address.parseIp4("100.64.152.16", 12346) catch unreachable;
