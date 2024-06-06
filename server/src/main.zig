@@ -39,12 +39,12 @@ fn handle_tcp_connection_for_incoming_events(connection: *std.net.Server.Connect
     while (true) {
         var read_buffer_event = [_]u8{0} ** @sizeOf(NetMessage);
         const n_read = try reader.read(&read_buffer_event);
-        std.log.debug("tcp read={} {x}", .{ n_read, read_buffer_event[0..n_read] });
-        if (n_read == 0) {
+        if (n_read < @sizeOf(NetMessage)) {
             std.log.debug("tcp read={} client likely closed the connection", .{n_read});
             std.process.exit(0);
         }
         std.debug.assert(n_read == @sizeOf(NetMessage));
+
         const message: NetMessage = std.mem.bytesToValue(NetMessage, &read_buffer_event);
         std.log.info("event {}", .{message});
 
