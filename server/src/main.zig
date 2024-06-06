@@ -90,7 +90,7 @@ fn broadcast_video_data_to_viewers(data: []u8, viewers: []Viewer) void {
 }
 
 fn handle_video_data_udp_packet(in: std.posix.socket_t, out: std.fs.File, viewers: []Viewer) void {
-    var read_buffer = [_]u8{0} ** 4096;
+    var read_buffer = [_]u8{0} ** (1 << 16); // Max UDP packet size.
     if (std.posix.read(in, &read_buffer)) |n_read| {
         std.log.debug("udp read={}", .{n_read});
 
