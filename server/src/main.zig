@@ -238,7 +238,7 @@ fn fill_string_from_timestamp_ms(timestamp_ms: i64, out: *[256:0]u8) [:0]u8 {
 
 pub fn main() !void {
     const viewer_addresses = [_]std.net.Address{
-        std.net.Address.parseIp4("100.64.152.16", 12346) catch unreachable,
+        comptime std.net.Address.parseIp4("100.64.152.16", 12346) catch unreachable,
     };
     std.log.info("viewers {any}", .{viewer_addresses});
 
