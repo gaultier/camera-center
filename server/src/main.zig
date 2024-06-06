@@ -44,6 +44,7 @@ fn handle_tcp_connection_for_incoming_events(connection: *std.net.Server.Connect
             std.log.debug("tcp read={} client likely closed the connection", .{n_read});
             std.process.exit(0);
         }
+        std.debug.assert(n_read == @sizeOf(NetMessage));
         const message: NetMessage = std.mem.bytesToValue(NetMessage, &read_buffer_event);
         std.log.info("event {}", .{message});
 
