@@ -21,7 +21,6 @@ const VIDEO_FILE_MAX_RETAIN_DURATION_SECONDS = 7 * std.time.s_per_day;
 const VLC_UDP_PACKET_SIZE = 1316;
 
 const Viewer = struct {
-    ring: std.RingBuffer,
     socket: std.posix.socket_t,
 };
 
@@ -70,16 +69,23 @@ fn handle_tcp_connection_for_incoming_events(connection: *std.net.Server.Connect
 
 // TODO: Should it be in another thread/process?
 fn broadcast_video_data_to_viewers(data: []u8, viewers: []Viewer) void {
-    for (viewers) |*viewer| {
-        viewer.ring.writeSliceAssumeCapacity(data);
+    for (viewers) |*viewer| viewer_send: {
+        // Why we cannot simply recv & send the same data in one go:
+        // VLC is a viewer and only wants UDP packets smaller or equal in size to `VLC_UDP_PACKET_SIZE`.
+        // So we have to potentially chunk one UDP packet into smaller ones.
+        var i: usize = 0;
+        while (i < data.len) {
+            // Do not go past the end.
+            const end = std.math.clamp(i + VLC_UDP_PACKET_SIZE, 0, data.len);
 
-        while (!viewer.ring.isEmpty()) {
-            var read_buffer_ring = [_]u8{0} ** VLC_UDP_PACKET_SIZE;
-            viewer.ring.readFirst(&read_buffer_ring, VLC_UDP_PACKET_SIZE) catch break;
-            _ = std.posix.send(viewer.socket, read_buffer_ring[0..VLC_UDP_PACKET_SIZE], 0) catch |err| {
+            if (std.posix.send(viewer.socket, data[i..end], 0)) |n_sent| {
+                i += n_sent;
+            } else |err| {
                 std.log.err("failed to write to viewer {}", .{err});
-            };
+                break :viewer_send; // Skip this problematic viewer.
+            }
         }
+        std.debug.assert(i >= data.len);
     }
 }
 
@@ -126,17 +132,12 @@ fn listen_udp_for_incoming_video_data() !void {
     const address = std.net.Address.parseIp4("0.0.0.0", 12345) catch unreachable;
     try std.posix.bind(socket, &address.any, address.getOsSockLen());
 
-    var mem = [_]u8{0} ** (1 << 16);
-    var fixed_buffer_allocator = std.heap.FixedBufferAllocator.init(&mem);
-    const allocator = fixed_buffer_allocator.allocator();
-
     var viewers = Viewers{undefined};
     comptime std.debug.assert(VIEWER_ADDRESSES.len == viewers.len);
 
     for (&viewers, 0..) |*viewer, i| {
         viewer.socket = try std.posix.socket(std.posix.AF.INET, std.posix.SOCK.DGRAM, 0);
         try std.posix.connect(viewer.socket, &VIEWER_ADDRESSES[i].any, VIEWER_ADDRESSES[i].getOsSockLen());
-        viewer.ring = try std.RingBuffer.init(allocator, 4096);
     }
 
     var video_file = try create_video_file();
