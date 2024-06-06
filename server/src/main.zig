@@ -161,7 +161,8 @@ fn listen_udp_for_incoming_video_data() !void {
     while (true) {
         _ = std.posix.poll(&poll_fds, -1) catch |err| {
             std.log.err("poll error {}", .{err});
-            continue;
+            // All errors here are unrecoverable so it's better to simply exit.
+            std.process.exit(std.posix.errno(err));
         };
 
         // TODO: Handle `POLL.ERR` ?
