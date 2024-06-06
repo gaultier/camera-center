@@ -25,7 +25,8 @@ const Viewer = struct {
     socket: std.posix.socket_t,
 };
 
-const Viewers = [1]Viewer;
+const VIEWERS_COUNT = 1;
+const Viewers = [VIEWERS_COUNT]Viewer;
 
 fn handle_tcp_connection_for_incoming_events(connection: *std.net.Server.Connection) !void {
     var event_file = try std.fs.cwd().openFile("events.txt", .{ .mode = .write_only });
@@ -113,7 +114,7 @@ fn handle_timer_trigger(fd: i32, video_file: *std.fs.File) !void {
 
 // TODO: For multiple cameras we need to identify which stream it is.
 // Perhaps from the mpegts metadata?
-fn listen_udp_for_incoming_video_data(viewer_addresses: [1]std.net.Address) !void {
+fn listen_udp_for_incoming_video_data(viewer_addresses: [VIEWERS_COUNT]std.net.Address) !void {
     const socket = try std.posix.socket(std.posix.AF.INET, std.posix.SOCK.DGRAM, 0);
     const address = std.net.Address.parseIp4("0.0.0.0", 12345) catch unreachable;
     try std.posix.bind(socket, &address.any, address.getOsSockLen());
@@ -237,7 +238,7 @@ fn fill_string_from_timestamp_ms(timestamp_ms: i64, out: *[256:0]u8) [:0]u8 {
 }
 
 pub fn main() !void {
-    const viewer_addresses = [_]std.net.Address{
+    const viewer_addresses = [VIEWERS_COUNT]std.net.Address{
         comptime std.net.Address.parseIp4("100.64.152.16", 12346) catch unreachable,
     };
     std.log.info("viewers {any}", .{viewer_addresses});
