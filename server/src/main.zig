@@ -20,7 +20,12 @@ const CLEANER_FREQUENCY_SECONDS = 1 * std.time.s_per_min;
 const VIDEO_FILE_MAX_RETAIN_DURATION_SECONDS = 7 * std.time.s_per_day;
 const VLC_UDP_PACKET_SIZE = 1316;
 
-const VIEWER_ADDRESSES = [_]std.net.Address{std.net.Address.parseIp4("100.64.152.16", 12346) catch unreachable};
+const Viewer = struct {
+    ring: std.RingBuffer,
+    socket: std.posix.socket_t,
+};
+
+const Viewers = [1]Viewer;
 
 fn handle_tcp_connection_for_incoming_events(connection: *std.net.Server.Connection) !void {
     var event_file = try std.fs.cwd().openFile("events.txt", .{ .mode = .write_only });
@@ -59,7 +64,9 @@ fn handle_tcp_connection_for_incoming_events(connection: *std.net.Server.Connect
     }
 }
 
-fn handle_udp_packet(in: std.posix.socket_t, out: std.fs.File, viewer_socket: std.posix.socket_t, viewer_ring: *std.RingBuffer) void {
+fn handle_udp_packet(in: std.posix.socket_t, out: std.fs.File, viewers: Viewers) void {
+    _ = viewers;
+
     var read_buffer = [_]u8{0} ** 4096;
     if (std.posix.read(in, &read_buffer)) |n_read| {
         // std.log.warn("udp read={}", .{n_read});
@@ -67,15 +74,15 @@ fn handle_udp_packet(in: std.posix.socket_t, out: std.fs.File, viewer_socket: st
         out.writeAll(read_buffer[0..n_read]) catch |err| {
             std.log.err("failed to write all to file {}", .{err});
         };
-        viewer_ring.writeSliceAssumeCapacity(read_buffer[0..n_read]);
+        // viewer_ring.writeSliceAssumeCapacity(read_buffer[0..n_read]);
 
-        while (!viewer_ring.isEmpty()) {
-            var read_buffer_ring = [_]u8{0} ** VLC_UDP_PACKET_SIZE;
-            viewer_ring.readFirst(&read_buffer_ring, VLC_UDP_PACKET_SIZE) catch break;
-            _ = std.posix.send(viewer_socket, read_buffer_ring[0..VLC_UDP_PACKET_SIZE], 0) catch |err| {
-                std.log.err("failed to write to viewer {}", .{err});
-            };
-        }
+        // while (!viewer_ring.isEmpty()) {
+        //     var read_buffer_ring = [_]u8{0} ** VLC_UDP_PACKET_SIZE;
+        //     viewer_ring.readFirst(&read_buffer_ring, VLC_UDP_PACKET_SIZE) catch break;
+        //     _ = std.posix.send(viewer_socket, read_buffer_ring[0..VLC_UDP_PACKET_SIZE], 0) catch |err| {
+        //         std.log.err("failed to write to viewer {}", .{err});
+        //     };
+        // }
     } else |err| {
         std.log.err("failed to read udp {}", .{err});
     }
@@ -104,28 +111,23 @@ fn handle_timer_trigger(fd: i32, video_file: *std.fs.File) !void {
 
 // TODO: For multiple cameras we need to identify which stream it is.
 // Perhaps from the mpegts metadata?
-fn listen_udp_for_incoming_video_data() !void {
+fn listen_udp_for_incoming_video_data(viewer_addresses: [1]std.net.Address) !void {
     const socket = try std.posix.socket(std.posix.AF.INET, std.posix.SOCK.DGRAM, 0);
     const address = std.net.Address.parseIp4("0.0.0.0", 12345) catch unreachable;
     try std.posix.bind(socket, &address.any, address.getOsSockLen());
 
-    const viewers = init_viewers: {
-        for (&VIEWER_ADDRESSES) |*viewer_address| {
-            const viewer_socket = try std.posix.socket(std.posix.AF.INET, std.posix.SOCK.DGRAM, 0);
-            try std.posix.connect(viewer_socket, &viewer_address.any, viewer_address.getOsSockLen());
-        }
-        break :init_viewers;
-    };
-    _ = viewers;
-
-    const viewer_socket = try std.posix.socket(std.posix.AF.INET, std.posix.SOCK.DGRAM, 0);
-    const viewer_address = std.net.Address.parseIp4("100.64.152.16", 12346) catch unreachable;
-    try std.posix.connect(viewer_socket, &viewer_address.any, viewer_address.getOsSockLen());
-
-    var mem = [_]u8{0} ** 8192;
+    var mem = [_]u8{0} ** (1 << 16);
     var fixed_buffer_allocator = std.heap.FixedBufferAllocator.init(&mem);
     const allocator = fixed_buffer_allocator.allocator();
-    var viewer_ring = try std.RingBuffer.init(allocator, 4096);
+
+    var viewers = Viewers{undefined};
+    comptime std.debug.assert(viewer_addresses.len == viewers.len);
+
+    for (&viewers, 0..) |*viewer, i| {
+        viewer.socket = try std.posix.socket(std.posix.AF.INET, std.posix.SOCK.DGRAM, 0);
+        try std.posix.connect(viewer.socket, &viewer_addresses[i].any, viewer_addresses[i].getOsSockLen());
+        viewer.ring = try std.RingBuffer.init(allocator, 4096);
+    }
 
     var video_file = try create_video_file();
 
@@ -154,7 +156,7 @@ fn listen_udp_for_incoming_video_data() !void {
         // TODO: Handle `POLL.ERR`.
 
         if ((poll_fds[0].revents & std.posix.POLL.IN) != 0) {
-            handle_udp_packet(poll_fds[0].fd, video_file, viewer_socket, &viewer_ring);
+            handle_udp_packet(poll_fds[0].fd, video_file, viewers);
         } else if ((poll_fds[1].revents & std.posix.POLL.IN) != 0) {
             try handle_timer_trigger(poll_fds[1].fd, &video_file);
         } else {
@@ -233,7 +235,11 @@ fn fill_string_from_timestamp_ms(timestamp_ms: i64, out: *[256:0]u8) [:0]u8 {
 }
 
 pub fn main() !void {
-    var listen_udp_for_incoming_video_data_thread = try std.Thread.spawn(.{}, listen_udp_for_incoming_video_data, .{});
+    const viewer_addresses = [_]std.net.Address{
+        std.net.Address.parseIp4("100.64.152.16", 12346) catch unreachable,
+    };
+
+    var listen_udp_for_incoming_video_data_thread = try std.Thread.spawn(.{}, listen_udp_for_incoming_video_data, .{viewer_addresses});
     try listen_udp_for_incoming_video_data_thread.setName("incoming_video");
 
     var run_delete_old_video_files_forever_thread = try std.Thread.spawn(.{}, run_delete_old_video_files_forever, .{});
