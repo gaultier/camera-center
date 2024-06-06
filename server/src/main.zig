@@ -34,36 +34,24 @@ fn handle_tcp_connection_for_incoming_events(connection: *std.net.Server.Connect
     var event_file = try std.fs.cwd().openFile("events.txt", .{ .mode = .write_only });
     try event_file.seekFromEnd(0);
 
-    var mem = [_]u8{0} ** 4096;
-    var fixed_buffer_allocator = std.heap.FixedBufferAllocator.init(&mem);
-    const allocator = fixed_buffer_allocator.allocator();
-    var ring = try std.RingBuffer.init(allocator, 2048);
+    var reader = std.io.bufferedReader(connection.stream.reader());
 
     while (true) {
-        var read_buffer_net = [_]u8{0} ** 512;
-        const n_read = connection.stream.read(&read_buffer_net) catch |err| {
-            std.log.err("failed to read message {}", .{err});
-            continue;
-        };
-        std.log.debug("tcp read={} {x}", .{ n_read, read_buffer_net[0..n_read] });
+        var read_buffer_event = [_]u8{0} ** @sizeOf(NetMessage);
+        const n_read = try reader.read(&read_buffer_event);
+        std.log.debug("tcp read={} {x}", .{ n_read, read_buffer_event[0..n_read] });
         if (n_read == 0) {
             std.log.debug("tcp read={} client likely closed the connection", .{n_read});
             std.process.exit(0);
         }
-        ring.writeSliceAssumeCapacity(read_buffer_net[0..n_read]);
+        const message: NetMessage = std.mem.bytesToValue(NetMessage, &read_buffer_event);
+        std.log.info("event {}", .{message});
 
-        while (true) {
-            var read_buffer_ring = [_]u8{0} ** @sizeOf(NetMessage);
-            ring.readFirst(&read_buffer_ring, @sizeOf(NetMessage)) catch break;
-            const message: NetMessage = std.mem.bytesToValue(NetMessage, &read_buffer_ring);
-            std.log.info("event {}", .{message});
+        var date: [256:0]u8 = undefined;
+        const date_str = fill_string_from_timestamp_ms(message.timestamp_ms, &date);
 
-            var date: [256:0]u8 = undefined;
-            const date_str = fill_string_from_timestamp_ms(message.timestamp_ms, &date);
-
-            const writer = event_file.writer();
-            try std.fmt.format(writer, "{s} {}\n", .{ date_str, message.duration_ms });
-        }
+        const writer = event_file.writer();
+        try std.fmt.format(writer, "{s} {}\n", .{ date_str, message.duration_ms });
     }
 }
 
@@ -162,7 +150,7 @@ fn listen_udp_for_incoming_video_data() !void {
         _ = std.posix.poll(&poll_fds, -1) catch |err| {
             std.log.err("poll error {}", .{err});
             // All errors here are unrecoverable so it's better to simply exit.
-            std.process.exit(std.posix.errno(err));
+            std.process.exit(1);
         };
 
         // TODO: Handle `POLL.ERR` ?
