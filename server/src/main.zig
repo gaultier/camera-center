@@ -70,7 +70,7 @@ fn handle_udp_packet(in: std.posix.socket_t, out: std.fs.File, viewer_socket: st
         while (!viewer_ring.isEmpty()) {
             var read_buffer_ring = [_]u8{0} ** VLC_UDP_PACKET_SIZE;
             viewer_ring.readFirst(&read_buffer_ring, VLC_UDP_PACKET_SIZE) catch break;
-            _ = std.posix.write(viewer_socket, read_buffer_ring[0..VLC_UDP_PACKET_SIZE]) catch |err| {
+            _ = std.posix.send(viewer_socket, read_buffer_ring[0..VLC_UDP_PACKET_SIZE], 0) catch |err| {
                 std.log.err("failed to write to viewer {}", .{err});
             };
         }
