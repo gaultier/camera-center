@@ -64,9 +64,7 @@ fn handle_tcp_connection_for_incoming_events(connection: *std.net.Server.Connect
     }
 }
 
-fn handle_udp_packet(in: std.posix.socket_t, out: std.fs.File, viewers: Viewers) void {
-    _ = viewers;
-
+fn handle_udp_packet(in: std.posix.socket_t, out: std.fs.File, viewers: []Viewer) void {
     var read_buffer = [_]u8{0} ** 4096;
     if (std.posix.read(in, &read_buffer)) |n_read| {
         // std.log.warn("udp read={}", .{n_read});
@@ -74,15 +72,18 @@ fn handle_udp_packet(in: std.posix.socket_t, out: std.fs.File, viewers: Viewers)
         out.writeAll(read_buffer[0..n_read]) catch |err| {
             std.log.err("failed to write all to file {}", .{err});
         };
-        // viewer_ring.writeSliceAssumeCapacity(read_buffer[0..n_read]);
 
-        // while (!viewer_ring.isEmpty()) {
-        //     var read_buffer_ring = [_]u8{0} ** VLC_UDP_PACKET_SIZE;
-        //     viewer_ring.readFirst(&read_buffer_ring, VLC_UDP_PACKET_SIZE) catch break;
-        //     _ = std.posix.send(viewer_socket, read_buffer_ring[0..VLC_UDP_PACKET_SIZE], 0) catch |err| {
-        //         std.log.err("failed to write to viewer {}", .{err});
-        //     };
-        // }
+        for (viewers) |*viewer| {
+            viewer.ring.writeSliceAssumeCapacity(read_buffer[0..n_read]);
+
+            while (!viewer.ring.isEmpty()) {
+                var read_buffer_ring = [_]u8{0} ** VLC_UDP_PACKET_SIZE;
+                viewer.ring.readFirst(&read_buffer_ring, VLC_UDP_PACKET_SIZE) catch break;
+                _ = std.posix.send(viewer.socket, read_buffer_ring[0..VLC_UDP_PACKET_SIZE], 0) catch |err| {
+                    std.log.err("failed to write to viewer {}", .{err});
+                };
+            }
+        }
     } else |err| {
         std.log.err("failed to read udp {}", .{err});
     }
@@ -156,7 +157,7 @@ fn listen_udp_for_incoming_video_data(viewer_addresses: [1]std.net.Address) !voi
         // TODO: Handle `POLL.ERR`.
 
         if ((poll_fds[0].revents & std.posix.POLL.IN) != 0) {
-            handle_udp_packet(poll_fds[0].fd, video_file, viewers);
+            handle_udp_packet(poll_fds[0].fd, video_file, &viewers);
         } else if ((poll_fds[1].revents & std.posix.POLL.IN) != 0) {
             try handle_timer_trigger(poll_fds[1].fd, &video_file);
         } else {
