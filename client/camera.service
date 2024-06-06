@@ -3,7 +3,7 @@ Description=Camera client
 
 
 [Service]
-ExecStart=/home/pg/start.sh 192.168.1.129 12345
+ExecStart=/home/pg/start.sh 100.86.75.91 12345
 Restart=on-failure
 
 [Install]
