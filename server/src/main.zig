@@ -240,6 +240,7 @@ pub fn main() !void {
     const viewer_addresses = [_]std.net.Address{
         std.net.Address.parseIp4("100.64.152.16", 12346) catch unreachable,
     };
+    std.log.info("viewers {any}", .{viewer_addresses});
 
     var listen_udp_for_incoming_video_data_thread = try std.Thread.spawn(.{}, listen_udp_for_incoming_video_data, .{viewer_addresses});
     try listen_udp_for_incoming_video_data_thread.setName("incoming_video");
