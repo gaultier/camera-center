@@ -1,5 +1,5 @@
 *.zon
-zig-cache
+.zig-cache
 zig-out
 *.txt
 *.ts
