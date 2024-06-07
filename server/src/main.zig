@@ -24,10 +24,11 @@ const Viewer = struct {
     socket: std.posix.socket_t,
 };
 
-const VIEWERS_COUNT = 1;
+const VIEWERS_COUNT = 2;
 const Viewers = [VIEWERS_COUNT]Viewer;
 const VIEWER_ADDRESSES = [VIEWERS_COUNT]std.net.Address{
     std.net.Address.parseIp4("100.64.152.16", 12346) catch unreachable,
+    std.net.Address.parseIp4("100.117.112.54", 12346) catch unreachable,
 };
 
 fn handle_tcp_connection_for_incoming_events(connection: *std.net.Server.Connection) !void {
@@ -70,7 +71,7 @@ fn broadcast_video_data_to_viewers(data: []u8, viewers: []Viewer) void {
             if (std.posix.send(viewer.socket, data[i..end], 0)) |n_sent| {
                 i += n_sent;
             } else |err| {
-                std.log.err("failed to write to viewer {}", .{err});
+                std.log.debug("failed to write to viewer {}", .{err});
                 break :viewer_send; // Skip this problematic viewer.
             }
         }
@@ -118,10 +119,13 @@ fn switch_to_new_video_file(fd: i32, video_file: *std.fs.File) !void {
 // Perhaps from the mpegts metadata?
 fn listen_udp_for_incoming_video_data() !void {
     const socket = try std.posix.socket(std.posix.AF.INET, std.posix.SOCK.DGRAM, 0);
+    try std.posix.setsockopt(socket, std.posix.SOL.SOCKET, std.posix.SO.REUSEPORT, std.mem.sliceAsBytes(&[1]u32{1}));
+    try std.posix.setsockopt(socket, std.posix.SOL.SOCKET, std.posix.SO.REUSEADDR, std.mem.sliceAsBytes(&[1]u32{1}));
+
     const address = std.net.Address.parseIp4("0.0.0.0", 12345) catch unreachable;
     try std.posix.bind(socket, &address.any, address.getOsSockLen());
 
-    var viewers = Viewers{undefined};
+    var viewers = Viewers{ undefined, undefined };
     comptime std.debug.assert(VIEWER_ADDRESSES.len == viewers.len);
 
     for (&viewers, 0..) |*viewer, i| {
