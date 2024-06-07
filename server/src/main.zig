@@ -22,15 +22,29 @@ const VLC_UDP_PACKET_SIZE = 1316;
 
 const Viewer = struct {
     socket: std.posix.socket_t,
+    need_chunking: bool,
+    address: std.net.Address,
 };
 
-const VIEWERS_COUNT = 2;
+const VIEWERS_COUNT = 3;
 const Viewers = [VIEWERS_COUNT]Viewer;
-const VIEWER_ADDRESSES = [VIEWERS_COUNT]std.net.Address{
-    std.net.Address.parseIp4("100.64.152.16", 12346) catch unreachable,
-    std.net.Address.parseIp4("100.117.112.54", 12346) catch unreachable,
+var VIEWERS = [VIEWERS_COUNT]Viewer{
+    Viewer{
+        .address = std.net.Address.parseIp4("100.64.152.16", 12346) catch unreachable,
+        .need_chunking = true,
+        .socket = undefined,
+    }, // iphone
+    Viewer{
+        .address = std.net.Address.parseIp4("100.117.112.54", 12346) catch unreachable,
+        .need_chunking = true,
+        .socket = undefined,
+    }, // ipad
+    Viewer{
+        .address = std.net.Address.parseIp4("100.86.75.91", 12346) catch unreachable,
+        .need_chunking = false,
+        .socket = undefined,
+    }, // laptop
 };
-
 fn handle_tcp_connection_for_incoming_events(connection: *std.net.Server.Connection) !void {
     var event_file = try std.fs.cwd().openFile("events.txt", .{ .mode = .write_only });
     try event_file.seekFromEnd(0);
@@ -58,8 +72,8 @@ fn handle_tcp_connection_for_incoming_events(connection: *std.net.Server.Connect
 }
 
 // TODO: Should it be in another thread/process?
-fn broadcast_video_data_to_viewers(data: []u8, viewers: []Viewer) void {
-    for (viewers) |*viewer| viewer_send: {
+fn broadcast_video_data_to_viewers(data: []u8) void {
+    for (&VIEWERS) |*viewer| viewer_send: {
         // Why we cannot simply recv & send the same data in one go:
         // VLC is a viewer and only wants UDP packets smaller or equal in size to `VLC_UDP_PACKET_SIZE`.
         // So we have to potentially chunk one UDP packet into multiple smaller ones.
@@ -79,7 +93,7 @@ fn broadcast_video_data_to_viewers(data: []u8, viewers: []Viewer) void {
     }
 }
 
-fn handle_video_data_udp_packet(in: std.posix.socket_t, video_file: std.fs.File, viewers: []Viewer) void {
+fn handle_video_data_udp_packet(in: std.posix.socket_t, video_file: std.fs.File) void {
     var read_buffer = [_]u8{0} ** (1 << 16); // Max UDP packet size. Read as much as possible.
     if (std.posix.read(in, &read_buffer)) |n_read| {
         std.log.debug("udp read={}", .{n_read});
@@ -88,7 +102,7 @@ fn handle_video_data_udp_packet(in: std.posix.socket_t, video_file: std.fs.File,
             std.log.err("failed to write all to file {}", .{err});
         };
 
-        broadcast_video_data_to_viewers(read_buffer[0..n_read], viewers);
+        broadcast_video_data_to_viewers(read_buffer[0..n_read]);
     } else |err| {
         std.log.err("failed to read udp {}", .{err});
     }
@@ -125,12 +139,9 @@ fn listen_udp_for_incoming_video_data() !void {
     const address = std.net.Address.parseIp4("0.0.0.0", 12345) catch unreachable;
     try std.posix.bind(socket, &address.any, address.getOsSockLen());
 
-    var viewers = Viewers{ undefined, undefined };
-    comptime std.debug.assert(VIEWER_ADDRESSES.len == viewers.len);
-
-    for (&viewers, 0..) |*viewer, i| {
+    for (&VIEWERS) |*viewer| {
         viewer.socket = try std.posix.socket(std.posix.AF.INET, std.posix.SOCK.DGRAM, 0);
-        try std.posix.connect(viewer.socket, &VIEWER_ADDRESSES[i].any, VIEWER_ADDRESSES[i].getOsSockLen());
+        try std.posix.connect(viewer.socket, &viewer.address.any, viewer.address.getOsSockLen());
     }
 
     var video_file = try create_video_file();
@@ -161,7 +172,7 @@ fn listen_udp_for_incoming_video_data() !void {
         // TODO: Handle `POLL.ERR` ?
 
         if ((poll_fds[0].revents & std.posix.POLL.IN) != 0) {
-            handle_video_data_udp_packet(poll_fds[0].fd, video_file, &viewers);
+            handle_video_data_udp_packet(poll_fds[0].fd, video_file);
         } else if ((poll_fds[1].revents & std.posix.POLL.IN) != 0) {
             try switch_to_new_video_file(poll_fds[1].fd, &video_file);
         }
@@ -238,7 +249,7 @@ fn fill_string_from_timestamp_ms(timestamp_ms: i64, out: *[256:0]u8) [:0]u8 {
 }
 
 pub fn main() !void {
-    std.log.info("viewers {any}", .{VIEWER_ADDRESSES});
+    std.log.info("viewers {any}", .{VIEWERS});
 
     var listen_udp_for_incoming_video_data_thread = try std.Thread.spawn(.{}, listen_udp_for_incoming_video_data, .{});
     try listen_udp_for_incoming_video_data_thread.setName("incoming_video");
