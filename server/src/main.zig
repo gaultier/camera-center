@@ -77,12 +77,14 @@ fn broadcast_video_data_to_viewers(data: []u8) void {
         // Why we cannot simply recv & send the same data in one go:
         // VLC is a viewer and only wants UDP packets smaller or equal in size to `VLC_UDP_PACKET_SIZE`.
         // So we have to potentially chunk one UDP packet into multiple smaller ones.
+        const chunk_size = if (viewer.need_chunking) VLC_UDP_PACKET_SIZE else data.len;
+
         var i: usize = 0;
         while (i < data.len) {
             // Do not go past the end.
-            const end = std.math.clamp(i + VLC_UDP_PACKET_SIZE, 0, data.len);
+            const chunk_end = std.math.clamp(i + chunk_size, 0, data.len);
 
-            if (std.posix.send(viewer.socket, data[i..end], 0)) |n_sent| {
+            if (std.posix.send(viewer.socket, data[i..chunk_end], 0)) |n_sent| {
                 i += n_sent;
             } else |err| {
                 std.log.debug("failed to write to viewer {}", .{err});
