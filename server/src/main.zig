@@ -45,10 +45,7 @@ var VIEWERS = [VIEWERS_COUNT]Viewer{
         .socket = undefined,
     }, // laptop
 };
-fn handle_tcp_connection_for_incoming_events(connection: *std.net.Server.Connection) !void {
-    var event_file = try std.fs.cwd().openFile("events.txt", .{ .mode = .write_only });
-    try event_file.seekFromEnd(0);
-
+fn handle_tcp_connection_for_incoming_events(connection: *std.net.Server.Connection, event_file: *std.fs.File) !void {
     var reader = std.io.bufferedReader(connection.stream.reader());
 
     while (true) {
@@ -182,6 +179,9 @@ fn listen_udp_for_incoming_video_data() !void {
 }
 
 fn listen_tcp_for_incoming_events() !void {
+    var event_file = try std.fs.cwd().createFile("events.txt", .{});
+    try event_file.seekFromEnd(0);
+
     const address = std.net.Address.parseIp4("0.0.0.0", 12345) catch unreachable;
     var server = try std.net.Address.listen(address, .{ .reuse_address = true });
 
@@ -192,7 +192,7 @@ fn listen_tcp_for_incoming_events() !void {
             continue;
         }
         // Child
-        try handle_tcp_connection_for_incoming_events(&connection);
+        try handle_tcp_connection_for_incoming_events(&connection, &event_file);
     }
 }
 
